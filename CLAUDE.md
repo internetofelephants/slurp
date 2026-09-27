@@ -111,8 +111,9 @@ you wake there next dusk.
   short thick columns bending only at the wrist; hind legs are crouched and plantigrade (knee forward
   inside the body, IK to a raised ankle, long flat foot). Proposed next, not done: a sharp wrist
   curl as the front paw lifts, alternating shoulder/hip dips (waddle), tail held out when walking.
-- Video frames: `swift sheet.swift <video> <out.png> t0 t1 step cols tileW [crop fractions]`
-  (AVFoundation contact sheet; the script lived in the session scratchpad, so recreate it if needed).
+- Video frames: `swift tools/sheet.swift <video> <out.png> t0 t1 step cols tileW [cropX cropY cropW cropH]`
+  makes a labelled contact sheet of exact frames (AVFoundation; crop values are fractions of the
+  frame). Write the output outside the repo.
 - Rearing up on hind legs and tail (tripod stance) to lick winged termites overhead: proposed, "not yet".
 - Step 5: intro scene (a rescuer opens a cage) and outro scenes (rescue team / free life).
 - Balance: much more food on nights 2–3 now. The 150 target may need raising after playtests.
