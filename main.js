@@ -660,9 +660,9 @@ BODY.bezierCurveTo(-68, -52, -52, -60, -36, -59);   // rump rising to the high h
 BODY.bezierCurveTo(-18, -58, 0, -54, 12, -50);      // back sloping down to the withers
 BODY.bezierCurveTo(22, -47, 30, -44, 36, -38);      // neck top, runs straight into the head
 BODY.bezierCurveTo(40, -32, 36, -24, 26, -22);      // throat and chest
-BODY.bezierCurveTo(12, -18, 0, -19, -14, -20);      // belly
-BODY.bezierCurveTo(-30, -21, -46, -20, -58, -24);   // flank
-BODY.bezierCurveTo(-68, -26, -72, -30, -70, -36);   // back of the thigh
+BODY.bezierCurveTo(12, -18, 0, -19, -14, -21);      // belly
+BODY.bezierCurveTo(-26, -23, -36, -28, -44, -30);   // flank tucks up toward the hind leg
+BODY.bezierCurveTo(-56, -30, -70, -29, -70, -36);   // back of the thigh
 BODY.closePath();
 
 const HEAD_PIVOT = [26, -40];
@@ -784,14 +784,14 @@ function updateTamandua(dt, time) {
   a.sniff = lerp(a.sniff, sniffing ? 1 : 0, 1 - Math.exp(-dt * 6));
   // From footage: walking on the ground the head hangs low, snout skimming the ground;
   // on a branch it's held forward, nearly in line with the body.
-  const walkHead = a.mode === 'ground' ? 0.4 : 0.12;
+  const walkHead = a.mode === 'ground' ? 0.2 : 0.12;
   a.flinch = Math.max(0, a.flinch - dt);
   const headTarget = a.flinch > 0
     ? -0.45 + 0.08 * Math.sin(time * 40)   // stung: head jerks up and shakes
     : a.claw.t >= 0
     ? 0.35   // head tucked down toward the target, out of the paw's way
     : sniffing
-    ? 0.44 + 0.04 * Math.sin(time * 10)
+    ? 0.26 + 0.04 * Math.sin(time * 10)
     : a.moveAmt > 0.2
       ? walkHead + 0.03 * Math.sin(a.gait * TAU * 2)
       : -0.05 + 0.05 * Math.sin(time * 1.3) + 0.03 * Math.sin(time * 3.1 + 1);
@@ -1045,7 +1045,10 @@ const DIAG_LEVEL = 0.18;   // fore touches down this fraction of a stride after 
 const DIAG_CLIMB = 0.38;   // on a vertical trunk
 const STRIDE_A = 18;       // half the foot sweep, local units (footage: ~0.7–0.8 s per stride at a slow walk)
 
-const bodyBob = () => -1.5 * a.moveAmt * Math.abs(Math.sin(a.gait * TAU));
+// STAND raises (+) or lowers (−) everything but the feet. Footage: the tamandua walks in a low
+// crouch, with belly clearance only ~30% of the body's depth.
+const STAND = -9;
+const bodyBob = () => -STAND - 1.5 * a.moveAmt * Math.abs(Math.sin(a.gait * TAU));
 // a point along the snout's centre line (t = 0 at its base, 1 at the tip)
 function snoutPoint(t) {
   const hx = lerp(SNOUT_BASE[0], SNOUT_TIP[0], t), hy = lerp(SNOUT_BASE[1], SNOUT_TIP[1], t);
@@ -1182,7 +1185,7 @@ function drawWelts(dt) {
     w.t += dt;
     if (w.t > 1.6) { a.welts.splice(i, 1); continue; }
     if (game.phase === 'dawn') continue;
-    const p = w.snout ? snoutPoint(w.snout) : toWorld(w.lx, w.ly);
+    const p = w.snout ? snoutPoint(w.snout) : toWorld(w.lx, w.ly + bodyBob());
     const al = w.t < 0.08 ? w.t / 0.08 : 1 - (w.t - 0.08) / 1.52;
     ctx.fillStyle = css(hex(TONGUE), 0.95 * al);  // same red as the tongue: the only colour around
     ctx.beginPath();
@@ -1276,11 +1279,15 @@ function drawTamandua(time, rim) {
   const D = a.diag;
   // `fwd` shifts a foot's centre of swing forward while walking. Footage: each fore paw lifts
   // to chest height and reaches far forward, landing below the snout, which hangs low.
+  // Reference silhouette: each leg is a thick, nearly straight column (`a`) with the only
+  // visible bend low down at the wrist/ankle (`b` is short), the foot turned forward. Both
+  // bend so that joint sits just above and behind the foot.
   const legs = [
-    { jx: -46, jy: -38, home: -44, fwd: -2, off: 0.5,     a: 22, b: 21, w: [17, 9, 6.5],  bend: -1, front: false },
-    { jx: 22,  jy: -34, home: 26,  fwd: 14, off: 0.5 + D, a: 22, b: 20, w: [12, 9, 7],    bend: 1,  front: true },
-    { jx: -52, jy: -38, home: -50, fwd: -2, off: 0,       a: 22, b: 21, w: [20, 10, 7],   bend: -1, front: false },
-    { jx: 16,  jy: -34, home: 20,  fwd: 14, off: D,       a: 22, b: 20, w: [14, 10.5, 8], bend: 1,  front: true },
+    // hind: short thigh + shin, knee forward inside the body (bend −1), down to a raised ankle
+    { jx: -46, jy: -38, home: -44, fwd: 2,  off: 0.5,     a: 17, b: 20, w: [16, 11, 7.5], bend: -1, front: false },
+    { jx: 22,  jy: -34, home: 26,  fwd: 10, off: 0.5 + D, a: 21, b: 7,  w: [12, 9.5, 7],  bend: 1,  front: true },
+    { jx: -52, jy: -38, home: -50, fwd: 2,  off: 0,       a: 17, b: 20, w: [18, 12, 8],   bend: -1, front: false },
+    { jx: 16,  jy: -34, home: 20,  fwd: 10, off: D,       a: 21, b: 7,  w: [14, 11, 8],   bend: 1,  front: true },
   ];
   const drawLeg = (L, i) => {
     // ph = 0 at touchdown. Stance (ph < DUTY): foot planted, sliding back relative to the body.
@@ -1312,20 +1319,25 @@ function drawTamandua(time, rim) {
     const jx = L.front ? L.jx + sx * reach * 0.6 : L.jx;
     const jy = L.jy + bob + (L.front ? 3 * a.moveAmt : 0);
     L = { ...L, jx };
-    const dx = fx - L.jx, dy = fy - jy, d = Math.min(Math.hypot(dx, dy), L.a + L.b - 0.01);
+    // Hind legs are plantigrade: the long foot lies flat, so the IK reaches for the ankle,
+    // which sits just above the heel, and the foot is drawn from there.
+    const tx = L.front ? fx : fx - 6, ty = L.front ? fy : fy - 7;
+    const dx = tx - L.jx, dy = ty - jy, d = Math.min(Math.hypot(dx, dy), L.a + L.b - 0.01);
     const A = Math.acos(clamp((L.a * L.a + d * d - L.b * L.b) / (2 * L.a * d), -1, 1));
     const k = Math.atan2(dy, dx) + L.bend * A;
     const kx = L.jx + Math.cos(k) * L.a, ky = jy + Math.sin(k) * L.a;
     const p = new Path2D();
     circ(p, L.jx, jy, L.w[0] / 2);
     limb(p, L.jx, jy, kx, ky, L.w[0], L.w[1]);
-    limb(p, kx, ky, fx, fy - L.w[2] / 2, L.w[1], L.w[2]);
+    limb(p, kx, ky, tx, ty - (L.front ? L.w[2] / 2 : 0), L.w[1], L.w[2]);
     if (L.front) {
       // hand rolled onto its outer edge, big claws curled under
       p.moveTo(fx + 7, fy - 3); p.ellipse(fx + 2, fy - 3, 5, 3, 0, 0, TAU, true);
       limb(p, fx + 5, fy - 3, fx + 9, fy - 0.5, 3, 1.2);
     } else {
-      limb(p, fx - 4, fy - 2.5, fx + 8, fy - 1.5, 5, 3.2); // flat, plantigrade hind foot
+      // ankle to heel, then the long flat sole; the toes droop a little in the air
+      limb(p, tx, ty, fx - 8, fy - 2.5, L.w[2], 5);
+      limb(p, fx - 8, fy - 2.5, fx + 7, fy - 1.5 + 2 * lift * a.moveAmt, 5, 3.2);
     }
     shape(p);
   };

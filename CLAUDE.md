@@ -105,7 +105,14 @@ world runs to ~5140. Passing one announces it. Sleeping hides the tamandua, show
 you wake there next dusk.
 
 ## Open items and ideas
-- Front-leg bend when walking looks exaggerated (parked by the user).
+- Walk follows the user's clip (`~/Dropbox/Documents/Staging/slurp/tamandua_walk.mov`; side-on at
+  1.8–3.2 s and 14–24 s): a low crouch, belly clearance ~30% of body depth (`STAND` −9 in `bodyBob`,
+  which moves everything but the feet; anything placed on the body must include it). Front legs are
+  short thick columns bending only at the wrist; hind legs are crouched and plantigrade (knee forward
+  inside the body, IK to a raised ankle, long flat foot). Proposed next, not done: a sharp wrist
+  curl as the front paw lifts, alternating shoulder/hip dips (waddle), tail held out when walking.
+- Video frames: `swift sheet.swift <video> <out.png> t0 t1 step cols tileW [crop fractions]`
+  (AVFoundation contact sheet; the script lived in the session scratchpad, so recreate it if needed).
 - Rearing up on hind legs and tail (tripod stance) to lick winged termites overhead: proposed, "not yet".
 - Step 5: intro scene (a rescuer opens a cage) and outro scenes (rescue team / free life).
 - Balance: much more food on nights 2–3 now. The 150 target may need raising after playtests.
