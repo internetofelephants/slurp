@@ -1,4 +1,4 @@
-// Snoutrageous — silhouette + movement prototype.
+// Slurp — a young tamandua's first three nights in the wild.
 // Everything is drawn procedurally on one canvas: dark shapes against a light sky.
 
 const canvas = document.getElementById('c');
@@ -33,7 +33,7 @@ const TONGUE = '#8f3b36'; // the only colour in the world
 const REACH = 48;         // how far the tongue can reach from the snout tip
 const ants = [];          // every ant, whatever it's crawling on: trunk, ground trail, or nest
 
-// ---------- light / palettes (T cycles) ----------
+// ---------- light / palettes (blended along the night clock) ----------
 const PALETTES = [
   { name: 'dusk',  top: '#d49a8b', bottom: '#f3c68f', sun: '#fde8c4', ink: '#1a110d', mote: '#fff4dc', sunX: 0.7,  sunY: 0.5,  sunR: 64, glow: 0 },
   { name: 'night', top: '#6d7a93', bottom: '#b3bcc7', sun: '#f4f3ec', ink: '#0d0f14', mote: '#f8f09c', sunX: 0.28, sunY: 0.22, sunR: 40, glow: 1 },
@@ -2072,7 +2072,7 @@ function render(time, dt) {
   ctx.strokeStyle = css(mix(pal.bottom, [255, 255, 255], 0.3), 0.55);
   ctx.fillStyle = css(pal.ink, 0.75);
   ctx.font = '600 18px ui-rounded, system-ui, sans-serif';
-  label('snoutrageous', 20, 34);
+  label('slurp', 20, 34);
   ctx.font = '13px system-ui, sans-serif';
   ctx.fillStyle = css(pal.ink, 0.6);
   label(`night ${game.night} of ${NIGHTS}`, 20, 53);
