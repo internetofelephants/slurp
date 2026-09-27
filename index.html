@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Snoutrageous</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #f3c68f; }
+    canvas { display: block; width: 100vw; height: 100vh; }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <script>
+    // always load the latest main.js (the dev server lets the browser cache it)
+    const s = document.createElement('script');
+    s.src = 'main.js?v=' + Date.now();
+    document.body.appendChild(s);
+  </script>
+</body>
+</html>
