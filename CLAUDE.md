@@ -106,11 +106,14 @@ you wake there next dusk.
 
 ## Open items and ideas
 - Walk follows the user's clip (`~/Dropbox/Documents/Staging/slurp/tamandua_walk.mov`; side-on at
-  1.8–3.2 s and 14–24 s): a low crouch, belly clearance ~30% of body depth (`STAND` −9 in `bodyBob`,
-  which moves everything but the feet; anything placed on the body must include it). Front legs are
-  short thick columns bending only at the wrist; hind legs are crouched and plantigrade (knee forward
-  inside the body, IK to a raised ankle, long flat foot). Proposed next, not done: a sharp wrist
-  curl as the front paw lifts, alternating shoulder/hip dips (waddle), tail held out when walking.
+  1.8–3.2 s and 14–24 s): a low crouch, belly clearance ~30% of body depth (`STAND` −9). Front legs
+  are short thick columns bending only at the wrist, and each paw curls back under the forearm while
+  in the air. Hind legs are crouched and plantigrade (knee forward inside the body, IK to a raised
+  ankle, long flat foot). Waddle: hips dip on hind touchdowns and shoulders on fore touchdowns
+  (`DIP`), giving a small pitch about `BODY_PIVOT`. `bodyPose()` and `bodyPt(x, y)` carry the offset
+  and pitch, and anything placed on the body must go through `bodyPt`. The head doesn't inherit the
+  pitch, and on the ground the snout is kept from sinking below the surface.
+  Proposed, not done: tail held out stiffly when walking steadily and dragging when slow.
 - Video frames: `swift tools/sheet.swift <video> <out.png> t0 t1 step cols tileW [cropX cropY cropW cropH]`
   makes a labelled contact sheet of exact frames (AVFoundation; crop values are fractions of the
   frame). Write the output outside the repo.

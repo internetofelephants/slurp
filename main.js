@@ -784,14 +784,14 @@ function updateTamandua(dt, time) {
   a.sniff = lerp(a.sniff, sniffing ? 1 : 0, 1 - Math.exp(-dt * 6));
   // From footage: walking on the ground the head hangs low, snout skimming the ground;
   // on a branch it's held forward, nearly in line with the body.
-  const walkHead = a.mode === 'ground' ? 0.2 : 0.12;
+  const walkHead = a.mode === 'ground' ? 0.14 : 0.12;
   a.flinch = Math.max(0, a.flinch - dt);
   const headTarget = a.flinch > 0
     ? -0.45 + 0.08 * Math.sin(time * 40)   // stung: head jerks up and shakes
     : a.claw.t >= 0
     ? 0.35   // head tucked down toward the target, out of the paw's way
     : sniffing
-    ? 0.26 + 0.04 * Math.sin(time * 10)
+    ? 0.15 + 0.04 * Math.sin(time * 10)
     : a.moveAmt > 0.2
       ? walkHead + 0.03 * Math.sin(a.gait * TAU * 2)
       : -0.05 + 0.05 * Math.sin(time * 1.3) + 0.03 * Math.sin(time * 3.1 + 1);
@@ -815,6 +815,12 @@ function updateTamandua(dt, time) {
   a.rf += clamp(a.facing - a.rf, -dt * 5, dt * 5);
 
   updateClaw(dt, clawKey);
+  // on the ground the nose follows the surface: if the snout tip would sink into the soil
+  // (slopes, the waddle), lift the head just enough to keep it resting on top
+  if (a.mode === 'ground') {
+    const tip = snoutPoint(1), under = tip.y - groundY(tip.x) + 1.5;
+    if (under > 0) a.head -= under / S / 63;
+  }
   updateTongue(dt, time, sniffing);
 }
 
@@ -1048,12 +1054,30 @@ const STRIDE_A = 18;       // half the foot sweep, local units (footage: ~0.7–
 // STAND raises (+) or lowers (−) everything but the feet. Footage: the tamandua walks in a low
 // crouch, with belly clearance only ~30% of the body's depth.
 const STAND = -9;
-const bodyBob = () => -STAND - 1.5 * a.moveAmt * Math.abs(Math.sin(a.gait * TAU));
+// Waddle (footage): as a foot takes weight just after touchdown, that end of the body dips.
+// Hips dip on hind touchdowns, shoulders on fore touchdowns (a little later, by the
+// diagonality), so the body rocks gently fore and aft. The pose is a vertical offset plus a
+// pitch about mid-body; everything attached to the body goes through bodyPt.
+const DIP = 3, BODY_PIVOT = [-17, -40], BODY_SPAN = 70;
+const dipAt = (ph) => { ph = ((ph % 1) + 1) % 1; return ph < 0.4 ? Math.sin(Math.PI * ph / 0.4) ** 2 : 0; };
+function bodyPose() {
+  const m = a.moveAmt, g = a.gait, D = a.diag;
+  const hip = DIP * m * (dipAt(g) + dipAt(g - 0.5));
+  const sh = DIP * m * (dipAt(g - D) + dipAt(g - 0.5 - D));
+  return { bob: -STAND + (hip + sh) / 2, pitch: Math.atan2(sh - hip, BODY_SPAN) };
+}
+// a body-local point, moved with the body's current offset and pitch
+function bodyPt(x, y, pose = bodyPose()) {
+  const [px, py] = BODY_PIVOT, c = Math.cos(pose.pitch), s = Math.sin(pose.pitch);
+  return [px + (x - px) * c - (y - py) * s, py + (x - px) * s + (y - py) * c + pose.bob];
+}
 // a point along the snout's centre line (t = 0 at its base, 1 at the tip)
 function snoutPoint(t) {
   const hx = lerp(SNOUT_BASE[0], SNOUT_TIP[0], t), hy = lerp(SNOUT_BASE[1], SNOUT_TIP[1], t);
+  const pose = bodyPose(), [px, py] = bodyPt(HEAD_PIVOT[0], HEAD_PIVOT[1], pose);
+  // the head rides on the body but doesn't tip with the waddle, keeping the nose steady
   const c = Math.cos(a.head), s = Math.sin(a.head);
-  return toWorld(HEAD_PIVOT[0] + hx * c - hy * s, HEAD_PIVOT[1] + bodyBob() + hx * s + hy * c);
+  return toWorld(px + hx * c - hy * s, py + hx * s + hy * c);
 }
 
 const EXTEND = 0.45; // fraction of a flick spent reaching out
@@ -1185,7 +1209,7 @@ function drawWelts(dt) {
     w.t += dt;
     if (w.t > 1.6) { a.welts.splice(i, 1); continue; }
     if (game.phase === 'dawn') continue;
-    const p = w.snout ? snoutPoint(w.snout) : toWorld(w.lx, w.ly + bodyBob());
+    const p = w.snout ? snoutPoint(w.snout) : toWorld(...bodyPt(w.lx, w.ly));
     const al = w.t < 0.08 ? w.t / 0.08 : 1 - (w.t - 0.08) / 1.52;
     ctx.fillStyle = css(hex(TONGUE), 0.95 * al);  // same red as the tongue: the only colour around
     ctx.beginPath();
@@ -1218,7 +1242,7 @@ function drawTongue() {
 
 // Tail as one smooth tapered outline: thick furred base, thin prehensile tip.
 // Where it would pass through the surface underfoot (ground or trunk), it drags along it.
-function tailShape(bob, time) {
+function tailShape(base, time) {
   let ang, c1, c2, drag;
   if (a.mode === 'trunk') { ang = Math.PI - 0.35; c1 = 0.25; c2 = -1.6; drag = true; }
   // footage: on a vine the tail lies back along it, the tip drooping over;
@@ -1227,7 +1251,7 @@ function tailShape(bob, time) {
   else { ang = Math.PI - 0.7; c1 = 0.5; c2 = 0.5; drag = true; }
   const sway = 0.08 * Math.sin(time * 1.1) + 0.05 * a.moveAmt * Math.sin(a.gait * TAU);
   const N = 28, seg = 3.6, pts = [];
-  let x = -57, y = -42.5 + bob;
+  let [x, y] = base;
   for (let i = 0; i <= N; i++) {
     const u = i / N;
     const r = 1.3 + 9.2 * Math.pow(1 - u, 1.4);
@@ -1268,10 +1292,10 @@ function drawTamandua(time, rim) {
   ctx.lineJoin = ctx.lineCap = 'round';
   const shape = (p) => { ctx.fill(p); if (rim) { ctx.lineWidth = RW * 2; ctx.stroke(p); } };
 
-  const bob = bodyBob();
+  const pose = bodyPose();
   const breathe = 1 + 0.012 * Math.sin(time * 2.2);
 
-  shape(tailShape(bob, time));
+  shape(tailShape(bodyPt(-57, -42.5, pose), time));
 
   // legs (two-bone IK) as tapered limbs: heavy thighs, thick forearms; far pair first
   // Footfall timing (fraction of a stride): lateral sequence, hind then same-side fore.
@@ -1316,8 +1340,7 @@ function drawTamandua(time, rim) {
     }
     // the shoulder blade swings with the foreleg (the study: ~half the step length),
     // and the chest drops a little into the reach
-    const jx = L.front ? L.jx + sx * reach * 0.6 : L.jx;
-    const jy = L.jy + bob + (L.front ? 3 * a.moveAmt : 0);
+    const [jx, jy] = bodyPt(L.front ? L.jx + sx * reach * 0.6 : L.jx, L.jy + (L.front ? 3 * a.moveAmt : 0), pose);
     L = { ...L, jx };
     // Hind legs are plantigrade: the long foot lies flat, so the IK reaches for the ankle,
     // which sits just above the heel, and the foot is drawn from there.
@@ -1326,15 +1349,27 @@ function drawTamandua(time, rim) {
     const A = Math.acos(clamp((L.a * L.a + d * d - L.b * L.b) / (2 * L.a * d), -1, 1));
     const k = Math.atan2(dy, dx) + L.bend * A;
     const kx = L.jx + Math.cos(k) * L.a, ky = jy + Math.sin(k) * L.a;
+    // Footage: as a fore paw lifts, the wrist folds sharply so the paw curls back under the
+    // forearm; it opens again just before it lands. Rotate everything below the wrist.
+    let curl = 0;
+    if (L.front && ph >= DUTY && !(c >= 0 && a.claw.leg === i)) {
+      const s = (ph - DUTY) / (1 - DUTY), sm = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+      curl = sm(s / 0.3) * sm((0.95 - s) / 0.3) * a.moveAmt;
+    }
+    const phi = curl * 1.9, cph = Math.cos(phi), sph = Math.sin(phi);
+    const rp = (x, y) => [kx + (x - kx) * cph - (y - ky) * sph, ky + (x - kx) * sph + (y - ky) * cph];
     const p = new Path2D();
     circ(p, L.jx, jy, L.w[0] / 2);
     limb(p, L.jx, jy, kx, ky, L.w[0], L.w[1]);
-    limb(p, kx, ky, tx, ty - (L.front ? L.w[2] / 2 : 0), L.w[1], L.w[2]);
     if (L.front) {
+      const [ex, ey] = rp(tx, ty - L.w[2] / 2);
+      limb(p, kx, ky, ex, ey, L.w[1], L.w[2]);
       // hand rolled onto its outer edge, big claws curled under
-      p.moveTo(fx + 7, fy - 3); p.ellipse(fx + 2, fy - 3, 5, 3, 0, 0, TAU, true);
-      limb(p, fx + 5, fy - 3, fx + 9, fy - 0.5, 3, 1.2);
+      const [hx, hy] = rp(fx + 2, fy - 3), [c0x, c0y] = rp(fx + 5, fy - 3), [c1x, c1y] = rp(fx + 9, fy - 0.5);
+      p.moveTo(hx + 5 * cph, hy + 5 * sph); p.ellipse(hx, hy, 5, 3, phi, 0, TAU, true);
+      limb(p, c0x, c0y, c1x, c1y, 3, 1.2);
     } else {
+      limb(p, kx, ky, tx, ty, L.w[1], L.w[2]);
       // ankle to heel, then the long flat sole; the toes droop a little in the air
       limb(p, tx, ty, fx - 8, fy - 2.5, L.w[2], 5);
       limb(p, fx - 8, fy - 2.5, fx + 7, fy - 1.5 + 2 * lift * a.moveAmt, 5, 3.2);
@@ -1343,16 +1378,18 @@ function drawTamandua(time, rim) {
   };
   drawLeg(legs[0], 0); drawLeg(legs[1], 1);
 
+  // body and head share the body pose (offset + waddle pitch about BODY_PIVOT)
   ctx.save();
-  ctx.translate(0, bob);
+  ctx.translate(0, pose.bob);
+  ctx.translate(BODY_PIVOT[0], BODY_PIVOT[1]); ctx.rotate(pose.pitch); ctx.translate(-BODY_PIVOT[0], -BODY_PIVOT[1]);
+  ctx.save();
   ctx.scale(1, breathe);
   shape(BODY);
   ctx.restore();
-
-  // head + ear (the tongue is drawn separately, in world space, in colour)
-  ctx.save();
-  ctx.translate(HEAD_PIVOT[0], HEAD_PIVOT[1] + bob);
-  ctx.rotate(a.head);
+  // head + ear (the tongue is drawn separately, in world space, in colour); the head
+  // cancels the waddle pitch so the nose stays steady
+  ctx.translate(HEAD_PIVOT[0], HEAD_PIVOT[1]);
+  ctx.rotate(a.head - pose.pitch);
   shape(HEAD);
   shape(EAR);
   ctx.restore();
