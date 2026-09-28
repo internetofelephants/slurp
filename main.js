@@ -731,7 +731,7 @@ function updateTamandua(dt, time) {
 
   if (a.mode === 'ground') {
     a.vel = approach(a.vel, still ? 0 : h * 48 * hurry, dt);
-    a.x = clamp(a.x + a.vel * dt, 60, WORLD_W - 60);
+    a.x = clamp(a.x + a.vel * dt, 60, game.phase === 'free' ? Infinity : WORLD_W - 60);
     if (h && !still) a.facing = h;
     if (v > 0 && !still) {
       const t = trees.find((t) => Math.abs(a.x - t.x) < t.hw + 30);
@@ -788,6 +788,8 @@ function updateTamandua(dt, time) {
   a.flinch = Math.max(0, a.flinch - dt);
   const headTarget = a.slump
     ? 0.45 + 0.03 * Math.sin(time * 1.5)   // spent: head hanging
+    : a.greet
+    ? 0.08 + 0.06 * Math.sin(time * 9 + 1)   // nosing at the other tamandua
     : a.flinch > 0
     ? -0.45 + 0.08 * Math.sin(time * 40)   // stung: head jerks up and shakes
     : a.claw.t >= 0
@@ -1290,7 +1292,7 @@ function drawTamandua(time, rim) {
   ctx.save();
   ctx.translate(a.rx, a.ry);
   ctx.rotate(a.rt);
-  ctx.scale(a.rf * S, S);
+  ctx.scale(a.rf * S * (a.size || 1), S * (a.size || 1));
   const rear = clawRear(a.claw.t);
   if (rear) { ctx.translate(REAR_PIVOT, 0); ctx.rotate(-rear); ctx.translate(-REAR_PIVOT, 0); }
   const color = rim ? css(mix(pal.bottom, [255, 255, 255], 0.35), 0.9) : css(pal.ink);
@@ -1565,7 +1567,7 @@ function newGame() {
     rx: START_X, ry: groundY(START_X), rt: 0, rf: 1,
   });
   a.claw.t = -1; a.tongue.t = -1; a.tongue.target = null; a.flinch = 0;
-  a.slump = a.hidden = false;
+  a.slump = a.hidden = a.greet = false;
   cam.x = START_X + 90;
   Object.assign(game, { energy: E_START, total: 0 });
   for (const k in journal) delete journal[k];     // a fresh start: the nose memory is earned again
@@ -1596,12 +1598,12 @@ function onEnter() {
     if (game.clock < DAWN) { flash = { text: 'too early — keep feeding until it gets light', t: 2.2 }; return; }
     fade.action = () => { game.phase = 'dawn'; game.shelter = s; game.learned = commitMemory(); };
   } else if (game.phase === 'dawn') {
-    fade.action = game.night >= NIGHTS ? () => { game.phase = 'free'; } : () => {
+    fade.action = game.night >= NIGHTS ? startFree : () => {
       game.energy = Math.min(E_MAX, game.energy + SLEEP_BONUS);
       wakeAt(game.shelter);
       startNight(game.night + 1);
     };
-  } else if (game.phase === 'rescued' && !scene.done) {
+  } else if ((game.phase === 'rescued' || game.phase === 'free') && !scene.done) {
     fade.action = endScene;
   } else if (game.phase === 'rescued' || game.phase === 'free') {
     fade.action = newGame;
@@ -1737,27 +1739,32 @@ const INTRO_STEPS = [
   walkOff(true),
 ];
 
+const climbDown = { until: () => a.mode === 'ground' || scene.st > 20, run() {   // down out of a tree
+  for (const k in puppet) puppet[k] = false;
+  if (a.mode === 'branch') { puppet[a.branch.dir > 0 ? 'ArrowLeft' : 'ArrowRight'] = true; puppet.ArrowDown = true; }
+  else if (a.mode === 'trunk') puppet.ArrowDown = true;
+} };
+function landed() {   // in case it got stuck climbing down
+  for (const k in puppet) puppet[k] = false;
+  if (a.mode !== 'ground') Object.assign(a, { mode: 'ground', tree: null, branch: null, x: a.rx, vel: 0 });
+}
+
 const RESCUE_STEPS = [
-  { until: () => a.mode === 'ground' || scene.st > 20, run() {   // too weak to stay up a tree: climb down
-    for (const k in puppet) puppet[k] = false;
-    if (a.mode === 'branch') { puppet[a.branch.dir > 0 ? 'ArrowLeft' : 'ArrowRight'] = true; puppet.ArrowDown = true; }
-    else if (a.mode === 'trunk') puppet.ArrowDown = true;
-  } },
+  climbDown,   // too weak to stay up a tree
   { d: 1.6, enter() {   // it slumps; the rescuer sets off towards it from out of sight on the left
-    for (const k in puppet) puppet[k] = false;
-    if (a.mode !== 'ground') Object.assign(a, { mode: 'ground', tree: null, branch: null, x: a.rx, vel: 0 });
+    landed();
     a.slump = true;
     scene.kx = belly()[0] - 73;
     scene.x0 = a.rx - 60 - cw / sc / 2 - 150;
     scene.walkDur = (scene.kx - scene.x0) / R_SPEED;
     Object.assign(rescuer, { on: true, x: scene.x0, facing: 1, walk: 0, moving: 1, k: 0, lean: 0, hand: null, hand2: null, holds: false });
-  }, run() {} },
+  } },
   walkIn(false, () => back()),
   { d: 1.3, run(u) {   // kneel beside it
     const e = ease(u);
     Object.assign(rescuer, { k: e, lean: 0.6 * e, moving: 0, look: back() });
   } },
-  { d: 0.8, run() {} },
+  { d: 0.8 },
   { d: 0.8, run(u) {   // reach underneath it
     const e = ease(u);
     rescuer.lean = lerp(0.6, 1, e);
@@ -1782,6 +1789,54 @@ const RESCUE_STEPS = [
   walkOff(false),
 ];
 
+// Free: the evening after the last day. It climbs down or comes out of its shelter and heads into
+// the forest, where another tamandua (a grown one) comes the other way. They meet nose to nose,
+// then walk off together into the dusk while the picture fades.
+const mate = { on: false, x: 0, vel: 0, go: 0, facing: -1, greet: false,
+  rx: 0, ry: 0, rt: 0, rf: -1, gait: 0, diag: DIAG_LEVEL, head: 0, moveAmt: 0, sniff: 0, mode: 'ground',
+  curl: 0, claw: { t: -1, leg: 1 }, flinch: 0, size: 1.15 };
+const FREE_STEPS = [
+  climbDown,
+  { until: () => mate.x - a.x < 114, enter() {   // head off; the other one comes into view
+    landed();
+    puppet.ArrowRight = true;
+    const x = cam.x + cw / sc / 2 + 60;
+    Object.assign(mate, { on: true, x, rx: x, ry: groundY(x), vel: 0, go: 1, facing: -1, rf: -1, greet: false });
+  } },
+  { d: 3.2, enter() {   // nose to nose
+    puppet.ArrowRight = false; mate.go = 0;
+    a.greet = mate.greet = true;
+    scene.camX = (a.x + mate.x) / 2;
+  } },
+  { d: 1.2, enter() { a.greet = mate.greet = false; mate.facing = 1; mate.go = 1; } },   // it turns and leads
+  { d: 7, enter() { puppet.ArrowRight = true; }, run(u) { fade.k = clamp((u * 7 - 3.5) / 3, 0, 1); } },
+];
+// the other tamandua walks on its own, much like `updateTamandua` on the ground
+function updateMate(dt, time) {
+  const m = mate;
+  if (!m.on) return;
+  m.vel = approach(m.vel, m.go * 44 * m.facing, dt);
+  m.x += m.vel * dt;
+  const speed = Math.abs(m.vel);
+  m.gait += (dt * speed * DUTY) / (2 * STRIDE_A * S * m.size);
+  m.moveAmt = lerp(m.moveAmt, clamp(speed / 28, 0, 1), 1 - Math.exp(-dt * 8));
+  Object.assign(m, { rx: m.x, ry: groundY(m.x), rt: Math.atan(groundSlope(m.x)) });
+  m.rf += clamp(m.facing - m.rf, -dt * 5, dt * 5);
+  const target = m.greet ? 0.08 + 0.06 * Math.sin(time * 9) : m.moveAmt > 0.2 ? 0.14 + 0.03 * Math.sin(m.gait * TAU * 2)
+    : -0.05 + 0.05 * Math.sin(time * 1.3);
+  m.head = lerp(m.head, target, 1 - Math.exp(-dt * 7));
+}
+// draw it with the tamandua's own drawing code, by lending it the pose for a moment
+function drawMate(time, rim) {
+  if (!mate.on) return;
+  const keep = {};
+  for (const k of ['rx', 'ry', 'rt', 'rf', 'gait', 'diag', 'head', 'moveAmt', 'sniff', 'mode', 'curl', 'claw', 'flinch', 'size']) {
+    keep[k] = a[k]; a[k] = mate[k];
+  }
+  drawTamandua(time, rim);
+  Object.assign(a, keep);
+}
+
 function playScene(steps) {
   Object.assign(scene, { steps, t: 0, step: 0, st: 0, done: false, camX: null });
   for (const k in puppet) puppet[k] = false;
@@ -1792,14 +1847,15 @@ function updateScene(dt) {
   const s = scene.steps[scene.step];
   if (scene.st === 0 && s.enter) s.enter();
   scene.st += dt;
-  s.run(s.d ? Math.min(1, scene.st / s.d) : 0, dt);
+  if (s.run) s.run(s.d ? Math.min(1, scene.st / s.d) : 0, dt);
   if (s.d ? scene.st >= s.d : s.until()) {
     scene.st = 0;
     if (++scene.step >= scene.steps.length) scene.done = true;
   }
   // the tail stays curled round while it's in the cage or being carried
   if (!rescuer.holds) a.curl = lerp(a.curl || 0, cage.on && a.x < cage.x + CAGE_W / 2 ? 1 : 0, 1 - Math.exp(-dt * 3));
-  if (game.phase === 'rescued' && scene.done) a.hidden = true;   // carried away
+  updateMate(dt, game.time);
+  if (scene.done && (game.phase === 'rescued' || game.phase === 'free')) { a.hidden = true; mate.on = false; }   // carried away, or gone into the forest
 }
 
 function startIntro() {
@@ -1839,7 +1895,18 @@ function endScene() {
   scene.done = true;
   rescuer.on = rescuer.holds = cage.on = cage.holds = false;
   a.curl = 0;
-  if (game.phase === 'rescued') a.hidden = true;
+  a.greet = false;
+  if (game.phase === 'rescued' || game.phase === 'free') { a.hidden = true; mate.on = false; }
+}
+// the last day slept through: the next evening it's free
+function startFree() {
+  game.phase = 'free';
+  game.clock = 0;
+  Object.assign(pal, skyAt(0));
+  flash.t = found.t = 0;
+  memOpen = false;
+  wakeAt(game.shelter);
+  playScene(FREE_STEPS);
 }
 // while the cage is carried or set down with the door still shut, the tamandua rides inside it;
 // while the rescuer holds it, it's cradled in their hand, nose tipped up
@@ -1979,8 +2046,10 @@ function drawSceneText(label) {
   if (game.phase === 'intro') {
     cap('raised in rehab, a young tamandua is going back to the forest', 0.8, 5, 70);
     cap('survive three nights on your own', 6, 10.5, 70);
-  } else {
+  } else if (game.phase === 'rescued') {
     cap(game.cause === 'daylight' ? 'caught out in the daylight' : 'too weak to go on', 0.3, 5, 70);
+  } else {
+    cap('the next evening', 0.5, 4.5, 70);
   }
   if (scene.done) return;
   ctx.font = '13px system-ui, sans-serif';
@@ -2447,6 +2516,8 @@ function render(time, dt) {
     if (rimOn) drawTamandua(time, true);
     drawTamandua(time, false);
   }
+  if (rimOn) drawMate(time, true);
+  drawMate(time, false);
   if (rimOn) drawCage(true);
   drawCage(false);
   drawRescuer(false, 'front');   // no rim: it's in front of the body
@@ -2486,7 +2557,7 @@ function render(time, dt) {
   ctx.lineWidth = 3;
   ctx.strokeStyle = css(mix(pal.bottom, [255, 255, 255], 0.3), 0.55);
   ctx.fillStyle = css(pal.ink, 0.75);
-  if (game.phase === 'intro' || game.phase === 'rescued') drawSceneText(label);
+  if (game.phase === 'intro' || game.phase === 'rescued' || game.phase === 'free') drawSceneText(label);
   else drawHUD(time, dt, label);
   drawCard(label);
   if (fade.k > 0) {
@@ -2624,7 +2695,7 @@ canvas.addEventListener('mousemove', (e) => {
 // end-of-night / game-over / win card
 function drawCard(label) {
   if (game.phase === 'night' || game.phase === 'intro' || fade.action) return;
-  if (game.phase === 'rescued' && !scene.done) return;   // the rescue plays out first
+  if ((game.phase === 'rescued' || game.phase === 'free') && !scene.done) return;   // the scene plays out first
   let lines;
   if (game.phase === 'dawn') {
     const fed = game.tonight >= NIGHT_TARGET;
@@ -2682,6 +2753,7 @@ function frame(now) {
   const zk = (zoom - 1) / 1.4;  // 0 wide … 1 close-up
   const camX = game.phase === 'intro' ? INTRO_CAM
     : game.phase === 'rescued' ? scene.camX ?? a.rx - 60
+    : game.phase === 'free' ? scene.camX ?? a.rx + a.facing * 90
     : a.rx + a.facing * lerp(90, 20, zk);
   cam.x += (camX - cam.x) * (1 - Math.exp(-dt * 1.6));
   cam.y += (lerp(Math.min(-120, a.ry - 40), a.ry - 10, zk) - cam.y) * (1 - Math.exp(-dt * 2));

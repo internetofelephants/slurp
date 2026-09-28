@@ -54,7 +54,8 @@ fit) → leafcutter nests → logs + litter → bee hives, bullet ants, army rai
 → foreground → the tamandua (body shapes, input, `updateTamandua`, claw strike, hitting/carving/
 snapping nests, tongue, `updateAnts`) → **nights/energy/game flow** (`game`, `eatAnt`, `sting`, nose
 memory, `dealSpecies`, `wakeCreatures`, `startNight`, `newGame`, `onEnter`, `updateGame`) →
-**scenes** (`INTRO_STEPS`, `RESCUE_STEPS`, the scene runner, rescuer + cage drawing) → termite swarms → **scent** → camera/render/HUD → `frame`.
+**scenes** (`INTRO_STEPS`, `RESCUE_STEPS`, `FREE_STEPS` + the other tamandua, the scene runner,
+rescuer + cage drawing) → termite swarms → **scent** → camera/render/HUD → `frame`.
 
 ## Systems
 **Scenes.** Both are lists of steps (timed `d`, or `until()`) played by `playScene`/`updateScene`
@@ -78,6 +79,13 @@ rescuer walks in from the left, kneels, reaches under it and gathers it to their
 stays put, and then the "rescue team found you" card shows (`a.hidden`). Carrying it in the arms
 was chosen over the cage because the rescuer can't reach past a cage to the tamandua while
 kneeling.
+
+*Free (win).* Enter on the night-3 dawn card → `startFree()`, phase `'free'`. The next dusk, it
+wakes at its shelter, climbs down if it slept in the tree hollow, and walks right. A grown
+tamandua (`mate`, drawn 1.15× by lending its pose to `drawTamandua` in `drawMate`) comes the other
+way. They meet nose to nose (`greet`), then the mate turns and leads, the young one follows, and
+the picture fades to dark before the "three nights on your own" card. The world-end clamp is lifted
+during this scene.
 
 **Night clock.** `NIGHT_LEN` 240 s. The sky blends dusk → night → dawn → day along `game.clock`
 (0 dusk, 1 sunrise). From `DAWN` (0.8, 3:12) you may sleep. After sunrise you're exposed and lose
@@ -141,8 +149,7 @@ you wake there next dusk.
   makes a labelled contact sheet of exact frames (AVFoundation; crop values are fractions of the
   frame). Write the output outside the repo.
 - Rearing up on hind legs and tail (tripod stance) to lick winged termites overhead: proposed, "not yet".
-- Step 5: intro and rescue done. Next is the free outro: after the last dawn, it walks into the
-  forest and meets another tamandua.
+- Step 5 is done: the intro, rescue and free scenes.
 - Balance: much more food on nights 2–3 now. The 150 target may need raising after playtests.
   Shelters are far apart (the hollow log is near the far end).
 - Winged termites could reuse a stronger termite wisp instead of their own (one less smell to learn).
