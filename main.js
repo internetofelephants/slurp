@@ -1793,9 +1793,10 @@ function updateGame(dt) {
 }
 
 // ---------- sound ----------
-// Subtle effects, all made in code (Web Audio), with no files. They were chosen on
-// tools/sounds.html, which has the other variants. The audio starts on the first key or click
-// (browsers won't play before one), and M mutes.
+// Subtle effects and a quiet soundtrack, all made in code (Web Audio), with no files. They were
+// chosen on tools/sounds.html, which has the other variants. The audio starts on the first key or
+// click (browsers won't play before one), and M mutes everything.
+const SOUND_VOL = 0.7;
 const sound = { ac: null, out: null, kit: null, muted: false };
 try { sound.muted = localStorage.getItem('tupara-muted') === '1'; } catch (e) {}
 function wakeAudio() {
@@ -1804,10 +1805,11 @@ function wakeAudio() {
     if (!AC) return;
     sound.ac = new AC();
     sound.out = sound.ac.createGain();
-    sound.out.gain.value = 0.7;
+    sound.out.gain.value = sound.muted ? 0 : SOUND_VOL;
     const comp = sound.ac.createDynamicsCompressor();   // a safety net against sudden peaks
     sound.out.connect(comp); comp.connect(sound.ac.destination);
     sound.kit = makeSfx(sound.ac, sound.out);
+    startAmbience(sound.ac, sound.out);
   }
   if (sound.ac.state === 'suspended') sound.ac.resume();
 }
@@ -1818,7 +1820,39 @@ function sfx(name) {
 function toggleMute() {
   sound.muted = !sound.muted;
   try { localStorage.setItem('tupara-muted', sound.muted ? '1' : '0'); } catch (e) {}
+  if (sound.out) sound.out.gain.setTargetAtTime(sound.muted ? 0 : SOUND_VOL, sound.ac.currentTime, 0.1);   // music too
   flash = { text: sound.muted ? 'sound off' : 'sound on', t: 1.2 };
+}
+// The soundtrack, for now: a field recording of a Borneo rainforest canopy
+// (audio/borneo-canopy.mp3, 3 min), standing in until better music is found (the generated piece
+// was too sad; it's still on tools/sounds.html as D). The recording fades in and out at its ends, so
+// only its steady middle (a…b s) loops, each pass crossfading into the next over `xfade` s
+// (equal-power), and it never cuts. It's quiet as recorded, so `gain` lifts it to sit just under the
+// effects. Passes are scheduled ahead by a 1 s timer (further ahead while the tab is hidden).
+const AMBIENCE = { src: 'audio/borneo-canopy.mp3', a: 7, b: 172, xfade: 5, gain: 3.75 };
+function startAmbience(ac, out) {
+  const bus = ac.createGain();
+  bus.gain.value = AMBIENCE.gain;
+  bus.connect(out);
+  fetch(AMBIENCE.src).then((res) => res.arrayBuffer()).then((ab) => ac.decodeAudioData(ab)).then((buf) => {
+    const { a, b, xfade } = AMBIENCE, len = b - a, N = 64;
+    const up = new Float32Array(N), down = new Float32Array(N);
+    for (let i = 0; i < N; i++) { up[i] = Math.sin((i / (N - 1)) * Math.PI / 2); down[i] = Math.cos((i / (N - 1)) * Math.PI / 2); }
+    let next = ac.currentTime + 0.1, first = true;
+    function pass(t) {
+      const s = ac.createBufferSource(), g = ac.createGain();
+      s.buffer = buf; s.connect(g); g.connect(bus);
+      if (first) { g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(1, t + 4); first = false; }
+      else g.gain.setValueCurveAtTime(up, t, xfade);
+      g.gain.setValueCurveAtTime(down, t + len - xfade, xfade);
+      s.start(t, a, len);
+    }
+    function tick() {
+      while (next < ac.currentTime + (document.hidden ? 75 : 10)) { pass(next); next += len - xfade; }
+    }
+    tick();
+    setInterval(tick, 1000);
+  }).catch(() => {});   // no soundtrack if it can't load (e.g. the page was opened as a file)
 }
 function makeSfx(ac, out) {
   const r = (a, b) => a + (b - a) * Math.random();

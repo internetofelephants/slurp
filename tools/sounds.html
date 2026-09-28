@@ -164,6 +164,185 @@ function makeSfx(ac, out) {
   };
 }
 
+// ---------- ambient soundtrack ----------
+// makeMusic(ac, out) returns three moods, each a function (t0, dur) that schedules a stretch of
+// music starting at t0 and returns its bus (a gain node: ramp it down to stop early).
+// Everything is generated: pads, plucks, a flute, wind and night creatures, in a soft room.
+function makeMusic(ac, out) {
+  const r = (a, b) => a + (b - a) * Math.random();
+  const pickOne = (xs) => xs[Math.floor(Math.random() * xs.length)];
+  const mtof = (m) => 440 * 2 ** ((m - 69) / 12);
+  const noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+  { const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+
+  // a bus for one piece, faded in and out, feeding the output dry and through a soft room
+  function bus(t0, dur, wet = 0.55) {
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(1, t0 + 2.5);
+    g.gain.setValueAtTime(1, t0 + dur - 3);
+    g.gain.linearRampToValueAtTime(0.0001, t0 + dur);
+    g.connect(out);
+    const room = ac.createConvolver(), n = ac.sampleRate * 3.5, ir = ac.createBuffer(2, n, ac.sampleRate);
+    for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n) ** 3; }
+    room.buffer = ir;
+    const wetG = ac.createGain(); wetG.gain.value = wet;
+    room.connect(wetG); wetG.connect(g);
+    const send = ac.createGain();   // what the instruments feed: dry + room
+    send.connect(g); send.connect(room);
+    return { g, send };
+  }
+  function panTo(dest, p) { const s = ac.createStereoPanner(); s.pan.value = p; s.connect(dest); return s; }
+  function filter(dest, type, f, q = 0.7) { const b = ac.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; b.connect(dest); return b; }
+  function lfo(param, rate, depth, t0, dur) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.frequency.value = rate; g.gain.value = depth; o.connect(g); g.connect(param);
+    o.start(t0); o.stop(t0 + dur + 0.5);
+  }
+  // one note: attack a, hold, release rel
+  function note(t, type, f, a, hold, rel, peak, dest, detune = 0) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.value = f; o.detune.value = detune;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(peak, t + a);
+    g.gain.setValueAtTime(peak, t + a + hold);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + a + hold + rel);
+    o.connect(g); g.connect(dest);
+    o.start(t); o.stop(t + a + hold + rel + 0.1);
+    return o;
+  }
+  function noiseFor(t, dur, dest, peak) {
+    const s = ac.createBufferSource(), g = ac.createGain();
+    s.buffer = noiseBuf; s.loop = true;
+    g.gain.value = peak; s.connect(g); g.connect(dest);
+    s.start(t, r(0, 1.5)); s.stop(t + dur);
+    return g;
+  }
+  // a soft pluck, kalimba-ish
+  function pluck(t, m, peak, dest) {
+    const f = mtof(m);
+    note(t, 'sine', f, 0.004, 0, 1.6, peak, dest);
+    note(t, 'sine', f * 3.01, 0.003, 0, 0.25, peak * 0.22, dest);
+  }
+  // night insects: a cricket's trill of three short pulses
+  function cricket(t, dest) {
+    for (let k = 0; k < 3; k++) note(t + k * 0.075, 'sine', r(4200, 4500), 0.006, 0.03, 0.03, 0.005, dest);
+  }
+  // a tree frog's dry tik-tik
+  function frog(t, dest) {
+    const bp = filter(dest, 'bandpass', r(1900, 2500), 10);
+    for (let k = 0; k < randInt(2, 4); k++) noiseFor(t + k * 0.07, 0.025, bp, 0.18);
+  }
+  const randInt = (a, b) => Math.floor(r(a, b + 1));
+
+  return {
+    // A · Canopy at dusk: a breathing pad (Dsus2, then a wondering Bb with a raised 4th), sparse
+    // plucks from D major pentatonic with the odd G# for a hint of the unknown, faint crickets
+    A(t0, dur) {
+      const { g, send } = bus(t0, dur);
+      const lp = filter(send, 'lowpass', 650, 0.4);
+      lfo(lp.frequency, 0.07, 260, t0, dur);
+      const chords = [[50, 57, 64, 69], [46, 53, 60, 64]];
+      chords.forEach((ch, i) => {
+        const ct = t0 + (i * dur) / 2 - (i ? 1.5 : 0);
+        for (const m of ch) for (const det of [-8, 8]) note(ct, 'sawtooth', mtof(m), 3, dur / 2 - 2.5, 3.5, 0.011, lp, det);
+      });
+      const scale = [62, 64, 66, 69, 71, 74, 76, 62, 69, 68];
+      for (let t = t0 + 1.8; t < t0 + dur - 3; t += r(0.8, 2.1)) pluck(t, pickOne(scale), 0.05, panTo(send, r(-0.5, 0.5)));
+      for (let t = t0 + 2.5; t < t0 + dur - 1.5; t += r(1.4, 3)) cricket(t, panTo(g, r(-0.8, 0.8)));
+      return g;
+    },
+    // B · First steps: a slow, very soft heartbeat under a gentle marimba figure in A dorian that
+    // lifts to D major halfway, over a quiet pad
+    B(t0, dur) {
+      const { g, send } = bus(t0, dur, 0.45);
+      const pad = filter(send, 'lowpass', 900, 0.4);
+      [[45, 52, 59, 64, 67], [42, 50, 57, 62, 66]].forEach((ch, i) => {
+        const ct = t0 + (i * dur) / 2 - (i ? 1.5 : 0);
+        for (const m of ch) note(ct, 'triangle', mtof(m), 2.5, dur / 2 - 2, 3, 0.012, pad);
+      });
+      const beat = filter(g, 'lowpass', 220);
+      for (let t = t0 + 1; t < t0 + dur - 2; t += 1.25) {
+        note(t, 'sine', 58, 0.01, 0, 0.28, 0.07, beat);
+        note(t + 0.24, 'sine', 52, 0.01, 0, 0.22, 0.045, beat);
+      }
+      const figs = [[57, 60, 64, 62, 60, 64, 66, 64], [62, 66, 69, 66, 64, 69, 71, 69]];
+      const mar = filter(send, 'lowpass', 2400);
+      let i = 0;
+      for (let t = t0 + 2; t < t0 + dur - 2.5; t += 0.5, i++) {
+        if (Math.random() < 0.22) continue;
+        const fig = figs[t - t0 < dur / 2 ? 0 : 1];
+        note(t, 'triangle', mtof(fig[i % 8]), 0.004, 0, 0.45, 0.03, panTo(mar, Math.sin(i * 0.9) * 0.35));
+      }
+      return g;
+    },
+    // C · Night air: breathy wind and a low drone on E, a lone wooden flute (E dorian) whose
+    // second phrase stops on the bright sixth without resolving, and distant tree frogs
+    C(t0, dur) {
+      const { g, send } = bus(t0, dur, 0.6);
+      const wind = filter(g, 'bandpass', 600, 0.8);
+      lfo(wind.frequency, 0.06, 320, t0, dur);
+      const wg = noiseFor(t0, dur, wind, 0.026);
+      lfo(wg.gain, 0.11, 0.013, t0, dur);
+      note(t0, 'sine', mtof(40), 3, dur - 5, 2, 0.028, send);
+      note(t0 + 1, 'triangle', mtof(47), 3, dur - 6, 2, 0.012, send);
+      const flute = (t, phrase) => {
+        const o = ac.createOscillator(), gg = ac.createGain(), total = phrase.reduce((s, [, d]) => s + d, 0);
+        o.type = 'sine';
+        let at = t;
+        o.frequency.setValueAtTime(mtof(phrase[0][0]), t);
+        for (const [m, d] of phrase) { o.frequency.setTargetAtTime(mtof(m), at, 0.04); at += d; }
+        lfo(o.detune, 5, 9, t + 0.4, total);   // vibrato
+        gg.gain.setValueAtTime(0.0001, t);
+        gg.gain.linearRampToValueAtTime(0.05, t + 0.25);
+        gg.gain.setValueAtTime(0.045, t + total - 0.2);
+        gg.gain.exponentialRampToValueAtTime(0.0001, t + total + 1.2);
+        o.connect(gg); gg.connect(panTo(send, 0.15));
+        o.start(t); o.stop(t + total + 1.4);
+        noiseFor(t, 0.18, filter(send, 'bandpass', 1800, 2), 0.02);   // a breath as it starts
+      };
+      flute(t0 + 2.5, [[64, 0.9], [67, 0.6], [69, 1.6], [67, 0.9]]);
+      flute(t0 + 8.2, [[71, 0.7], [69, 0.6], [67, 0.7], [73, 2.2]]);
+      for (let t = t0 + 1.5; t < t0 + dur - 1.5; t += r(1.6, 3.5)) frog(t, panTo(g, r(-0.9, 0.9)));
+      return g;
+    },
+    // D · First steps in the rainforest (the pick): C's rainforest (wind and tree frogs) with B's
+    // heartbeat and pad over it (no marimba: its plinks would clash with the eating blips). Runs
+    // for any length: every section (half the piece, up to 12 s) moves to the next chord,
+    // A dorian → D → F lydian → E minor → back round; the heartbeat comes and goes (on for two
+    // sections, off for two) so it never nags.
+    D(t0, dur) {
+      const { g, send } = bus(t0, dur, 0.5);
+      // the rainforest
+      const wind = filter(g, 'bandpass', 600, 0.8);
+      lfo(wind.frequency, 0.06, 320, t0, dur);
+      const wg = noiseFor(t0, dur, wind, 0.026);
+      lfo(wg.gain, 0.11, 0.013, t0, dur);
+      for (let t = t0 + 1.5; t < t0 + dur - 1.5; t += r(1.6, 3.5)) frog(t, panTo(g, r(-0.9, 0.9)));
+      // first steps
+      const SECTIONS = [
+        { pad: [45, 52, 59, 64, 67] },   // A dorian
+        { pad: [42, 50, 57, 62, 66] },   // D over F#: the lift
+        { pad: [41, 48, 57, 64, 71] },   // F with a raised 4th: wonder
+        { pad: [40, 47, 55, 62, 67] },   // E minor: a moment's doubt
+      ];
+      const len = Math.min(12, dur / 2), pad = filter(send, 'lowpass', 900, 0.4);
+      const beat = filter(g, 'lowpass', 220);
+      for (let k = 0; t0 + k * len < t0 + dur - 2; k++) {
+        const S = SECTIONS[k % SECTIONS.length], st = t0 + k * len, end = Math.min(st + len, t0 + dur);
+        for (const m of S.pad) note(st - (k ? 1.5 : 0), 'triangle', mtof(m), 2.5, Math.max(0.5, end - st - 2), 3, 0.016, pad);
+        if (k % 4 < 2) {
+          for (let t = st + (k ? 0 : 1); t < end - 0.3 && t < t0 + dur - 2; t += 1.25) {
+            note(t, 'sine', 58, 0.01, 0, 0.28, 0.07, beat);
+            note(t + 0.24, 'sine', 52, 0.01, 0, 0.22, 0.045, beat);
+          }
+        }
+      }
+      return g;
+    },
+  };
+}
+
 // ---------- the test page ----------
 const SOUNDS = [
   { key: 'eat', name: '1 · an ant or termite eaten', when: 'Every lick that catches something. Plays a lot, so it must be tiny.',
@@ -182,7 +361,7 @@ const SOUNDS = [
   { key: 'bees', name: '6 · finding the stingless bees', when: 'The first time you break into a bee hive and find honey.',
     names: { A: 'A · rising arpeggio', B: 'B · shimmering chime', C: 'C · marimba run' } },
 ];
-let ac = null, master = null, sfx = null;
+let ac = null, master = null, sfx = null, music = null, playing = null;
 function audio() {
   if (!ac) {
     ac = new AudioContext();
@@ -190,6 +369,7 @@ function audio() {
     const comp = ac.createDynamicsCompressor();   // a safety net against sudden loud peaks
     master.connect(comp); comp.connect(ac.destination);
     sfx = makeSfx(ac, master);
+    music = makeMusic(ac, master);
   }
   master.gain.value = +document.getElementById('vol').value;
   if (ac.state === 'suspended') ac.resume();
@@ -201,7 +381,7 @@ const pick = (k) => picks[k] || 'A';
 function savePicks() {
   try { localStorage.setItem('tupara-sfx-picks', JSON.stringify(picks)); } catch (e) {}
   document.getElementById('picks').innerHTML = 'Your picks: ' +
-    SOUNDS.map((s) => `<b>${s.key[0].toUpperCase() + s.key.slice(1)} ${picks[s.key] || '–'}</b>`).join(' · ') +
+    [...SOUNDS.map((s) => s.key), 'music'].map((k) => `<b>${k[0].toUpperCase() + k.slice(1)} ${picks[k] || '–'}</b>`).join(' · ') +
     ' <br>(★ marks your favourite in each row; unpicked rows default to A.)';
   for (const el of document.querySelectorAll('.variant')) el.classList.toggle('picked', picks[el.dataset.key] === el.dataset.v);
 }
@@ -230,7 +410,45 @@ for (const S of SOUNDS) {
   }
   cards.append(c);
 }
-document.getElementById('vol').oninput = () => { if (master) master.gain.value = +document.getElementById('vol').value; };
+// the soundtrack samples: one plays at a time; effects can be played over it
+{
+  const MOODS = { A: 'A · Canopy at dusk', B: 'B · First steps', C: 'C · Night air', D: 'D · B over C’s rainforest, no marimba' };
+  const c = document.createElement('section');
+  c.className = 'card';
+  c.innerHTML = `<h2>7 · ambient soundtrack (15 s samples)</h2><p>Quiet and moody, a new adventure with a hint
+    of apprehension. While one plays, try the effects above over it. The one you pick gets expanded
+    into a full looping soundtrack.</p><div class="row"></div>`;
+  const row = c.querySelector('.row');
+  const stop = () => {
+    if (!playing) return;
+    const g = playing.gain;
+    g.cancelScheduledValues(ac.currentTime);
+    g.setValueAtTime(g.value, ac.currentTime);
+    g.linearRampToValueAtTime(0.0001, ac.currentTime + 0.4);
+    playing = null;
+  };
+  for (const v of ['A', 'B', 'C', 'D']) {
+    const g = document.createElement('span');
+    g.className = 'variant'; g.dataset.key = 'music'; g.dataset.v = v;
+    const play = document.createElement('button'), star = document.createElement('button');
+    play.textContent = '▶ ' + MOODS[v];
+    play.onclick = () => { const t = audio(); stop(); playing = music[v](t, 15); };
+    star.className = 'star'; star.textContent = '★'; star.title = 'pick this one';
+    star.onclick = () => { picks.music = v; savePicks(); };
+    g.append(play, star);
+    row.append(g);
+  }
+  const lb = document.createElement('button');
+  lb.className = 'demo'; lb.textContent = '▶ D · 2-minute preview (how it develops)';
+  lb.onclick = () => { const t = audio(); stop(); playing = music.D(t, 120); };
+  row.append(lb);
+  const sb = document.createElement('button');
+  sb.className = 'demo'; sb.textContent = '■ stop';
+  sb.onclick = stop;
+  row.append(sb);
+  cards.append(c);
+}
+document.getElementById('vol').oninput =() => { if (master) master.gain.value = +document.getElementById('vol').value; };
 document.getElementById('all').onclick = () => {
   const t = audio(), gaps = { eat: 0.6, rip: 0.9, sting: 0.9, shelter: 3.2, snap: 1.8, bees: 1.6 };
   let at = t;

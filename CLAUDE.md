@@ -16,7 +16,7 @@ The name "Snoutrageous" belongs to a different game. Don't use it here.
 
 ## Look and feel (rules)
 - Everything is procedural on one canvas: dark silhouettes against a light, hazy sky, with parallax
-  layers. No image assets.
+  layers. No image assets. (The one asset file is the stand-in ambience recording in `audio/`.)
 - The **tongue's red is the only colour** in the world. Sting welts use the same red.
   Scent wisps are neutral off-white by default. The `C` key tints them per species, as an option only.
 - Every shape helper winds the same way so shared `Path2D`s never punch holes. Anything drawn with
@@ -76,9 +76,19 @@ strike into a nest), `sting` (double nip) and `bullet` (a much worse one), `shel
 three-note lullaby on Enter to sleep), `snap` (the branch cracking), `thud` (when the tamandua
 hits the ground after falling with a snapped branch, or when the branch lands if it wasn't on
 it), and `bees` (a marimba run, the first time a hive gives honey each night, via `n.rang`). The
-audio starts on the first key or click. M mutes, and that's remembered in localStorage.
+audio starts on the first key or click. M mutes everything (effects and music), and that's
+remembered in localStorage.
+**Soundtrack** (`startAmbience`, `AMBIENCE`): for now a field recording, not music. The generated
+piece (D on the audition page) was too sad in play, so the user chose to stand in
+`audio/borneo-canopy.mp3` (Borneo rainforest canopy, 3 min) until better music is found. It's the
+game's only asset file. The recording fades in and out at its ends, so only its steady middle
+(7–172 s) loops, each pass crossfading into the next over 5 s (equal power). It's quiet as
+recorded, so it gets ×3.75 to sit under the effects (rms ~0.019; ×5 drowned them out). It's fetched and decoded after
+the first key or click, and passes are scheduled ahead by a 1 s timer (75 s ahead while the tab is
+hidden). It needs the page served over http (it can't load from a file:// page; the game then just
+runs without it).
 `tools/sounds.html` is the audition page, with three variants of each and the user's picks
-(eat A, rip B, sting C, shelter B, snap A, bees C). Try new sounds there first.
+(eat A, rip B, sting C, shelter B, snap A, bees C; music D was used, then replaced by the recording). Try new sounds there first.
 
 **Title screen.** Shown once per page load, over the dusk forest with the intro waiting behind it.
 It tells the story: the player is **Tupāra**, rescued from a forest fire as a baby and raised at the
