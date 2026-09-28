@@ -33,6 +33,7 @@ The name "Snoutrageous" belongs to a different game. Don't use it here.
   call `updateGame, stepPalette, updateAnts, updateTamandua, updateNests, updateScent` with
   `dt = 1/60` and advance `last` by 1000/60 each step, setting `keys.ArrowRight = true` etc. for input.
   Call `render(time, dt)` for a picture. `startNight(n)` jumps nights.
+  A load (and every new game) opens with the intro; `skipIntro()` jumps straight to night 1.
   Welts and `flash` only age inside `render`.
 - World generation uses the **seeded** `rnd` (`mulberry32(11)`), so the layout is the same every load,
   but **generation order matters**: adding or reordering anything shifts everything after it.
@@ -52,10 +53,32 @@ trunk cartons, loose bark, ant trails) → floor placement + **shelters** (place
 fit) → leafcutter nests → logs + litter → bee hives, bullet ants, army raid, alate home → background
 → foreground → the tamandua (body shapes, input, `updateTamandua`, claw strike, hitting/carving/
 snapping nests, tongue, `updateAnts`) → **nights/energy/game flow** (`game`, `eatAnt`, `sting`, nose
-memory, `dealSpecies`, `wakeCreatures`, `startNight`, `newGame`, `onEnter`, `updateGame`) → termite
-swarms → **scent** → camera/render/HUD → `frame`.
+memory, `dealSpecies`, `wakeCreatures`, `startNight`, `newGame`, `onEnter`, `updateGame`) →
+**scenes** (`INTRO_STEPS`, `RESCUE_STEPS`, the scene runner, rescuer + cage drawing) → termite swarms → **scent** → camera/render/HUD → `frame`.
 
 ## Systems
+**Scenes.** Both are lists of steps (timed `d`, or `until()`) played by `playScene`/`updateScene`
+and shared helpers (`walkIn`, `walkOff`). Captions show and the HUD is hidden during them, and Enter
+skips them (`skipIntro` / `endScene`). The rescuer is one person with a cap and a headlamp.
+
+*Intro (the release).* Phase `'intro'`. At dusk a rescuer (one person, with a headlamp whose
+beam is a pale cone) walks in carrying the tamandua in a travel cage, kneels, sets it down and
+lifts the guillotine door. The tamandua walks out to `START_X`, driven by the `puppet` keys that
+`held()` reads outside the night, and then control hands over (`handOver`) and night 1 starts. The
+rescuer keeps going on their own: they stand, pick up the cage and walk off left. The script is
+`INTRO_STEPS`. While `cage.holds`, `holdTamandua()` pins the tamandua inside, and `a.curl` curls
+its tail.
+The rescuer is built from `limb`/`circ` with a separate path per part. The near arm is drawn
+after the cage, with no rim.
+
+*Rescue (fail).* Energy hits 0 → `startRescue(cause)`, phase `'rescued'`. If it's up a tree, the
+tamandua climbs down on its own (puppet keys). Then it slumps (`a.slump`, head hanging), and the
+rescuer walks in from the left, kneels, reaches under it and gathers it to their chest
+(`rescuer.holds`: the tamandua follows the near hand), stands and walks off left. The camera
+stays put, and then the "rescue team found you" card shows (`a.hidden`). Carrying it in the arms
+was chosen over the cage because the rescuer can't reach past a cage to the tamandua while
+kneeling.
+
 **Night clock.** `NIGHT_LEN` 240 s. The sky blends dusk → night → dawn → day along `game.clock`
 (0 dusk, 1 sunrise). From `DAWN` (0.8, 3:12) you may sleep. After sunrise you're exposed and lose
 `EXPOSED_DRAIN`/s until sheltered. Three nights (`NIGHTS`).
@@ -118,7 +141,8 @@ you wake there next dusk.
   makes a labelled contact sheet of exact frames (AVFoundation; crop values are fractions of the
   frame). Write the output outside the repo.
 - Rearing up on hind legs and tail (tripod stance) to lick winged termites overhead: proposed, "not yet".
-- Step 5: intro scene (a rescuer opens a cage) and outro scenes (rescue team / free life).
+- Step 5: intro and rescue done. Next is the free outro: after the last dawn, it walks into the
+  forest and meets another tamandua.
 - Balance: much more food on nights 2–3 now. The 150 target may need raising after playtests.
   Shelters are far apart (the hollow log is near the far end).
 - Winged termites could reuse a stronger termite wisp instead of their own (one less smell to learn).

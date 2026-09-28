@@ -708,8 +708,8 @@ addEventListener('keydown', (e) => {
 addEventListener('keyup', (e) => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 
-// the tamandua only takes orders while a night is under way
-const held = (...codes) => game.phase === 'night' && !fade.action && codes.some((c) => keys[c]);
+// the tamandua only takes orders while a night is under way (in a scene, the scene steers it)
+const held = (...codes) => codes.some((c) => (game.phase === 'night' && !fade.action ? keys : puppet)[c]);
 
 function approach(v, target, dt) {
   const rate = Math.abs(target) > Math.abs(v) ? 90 : 150;
@@ -786,7 +786,9 @@ function updateTamandua(dt, time) {
   // on a branch it's held forward, nearly in line with the body.
   const walkHead = a.mode === 'ground' ? 0.14 : 0.12;
   a.flinch = Math.max(0, a.flinch - dt);
-  const headTarget = a.flinch > 0
+  const headTarget = a.slump
+    ? 0.45 + 0.03 * Math.sin(time * 1.5)   // spent: head hanging
+    : a.flinch > 0
     ? -0.45 + 0.08 * Math.sin(time * 40)   // stung: head jerks up and shakes
     : a.claw.t >= 0
     ? 0.35   // head tucked down toward the target, out of the paw's way
@@ -822,6 +824,7 @@ function updateTamandua(dt, time) {
     if (under > 0) a.head -= under / S / 63;
   }
   updateTongue(dt, time, sniffing);
+  holdTamandua();
 }
 
 function updateClaw(dt, clawKey) {
@@ -1249,6 +1252,9 @@ function tailShape(base, time) {
   // on the ground it slopes down from the rump, trails, and the naked tip lifts a little
   else if (a.mode === 'branch') { ang = Math.PI - 0.3; c1 = 0.15; c2 = -1.2; drag = true; }
   else { ang = Math.PI - 0.7; c1 = 0.5; c2 = 0.5; drag = true; }
+  // in the travel cage it's curled round against the back
+  const cu = a.curl || 0;
+  if (cu > 0) { ang = lerp(ang, Math.PI - 0.9, cu); c1 = lerp(c1, 1.2, cu); c2 = lerp(c2, 3.4, cu); }
   const sway = 0.08 * Math.sin(time * 1.1) + 0.05 * a.moveAmt * Math.sin(a.gait * TAU);
   const N = 28, seg = 3.6, pts = [];
   let [x, y] = base;
@@ -1413,7 +1419,7 @@ const SLEEP_BONUS = 20;   // a night survived and a day's sleep
 const DAWN = 0.8, DAY_END = 1.25, EXPOSED_DRAIN = 1.0;
 const START_X = 320;
 
-// phase: 'night' (playing) · 'dawn' (night survived, summary up) · 'rescued' (out of energy) · 'free' (won)
+// phase: 'intro' (the release) · 'night' (playing) · 'dawn' (night survived, summary up) · 'rescued' (out of energy) · 'free' (won)
 const game = {
   phase: 'night', night: 1, clock: 0, time: 0, energy: E_START, tonight: 0, total: 0, stings: 0,
   warned: false, dawnWarned: false, exposedWarned: false, shelter: null, cause: '',
@@ -1559,13 +1565,14 @@ function newGame() {
     rx: START_X, ry: groundY(START_X), rt: 0, rf: 1,
   });
   a.claw.t = -1; a.tongue.t = -1; a.tongue.target = null; a.flinch = 0;
+  a.slump = a.hidden = false;
   cam.x = START_X + 90;
   Object.assign(game, { energy: E_START, total: 0 });
   for (const k in journal) delete journal[k];     // a fresh start: the nose memory is earned again
   for (const k in tonight) delete tonight[k];
   memOpen = false;
   for (const s of shelters) s.found = false;
-  startNight(1);
+  startIntro();
 }
 // wake up where you slept
 function wakeAt(s) {
@@ -1581,7 +1588,9 @@ function wakeAt(s) {
 }
 function onEnter() {
   if (fade.action) return;
-  if (game.phase === 'night') {
+  if (game.phase === 'intro') {
+    fade.action = skipIntro;
+  } else if (game.phase === 'night') {
     const s = shelterHere();
     if (!s) return;
     if (game.clock < DAWN) { flash = { text: 'too early — keep feeding until it gets light', t: 2.2 }; return; }
@@ -1592,6 +1601,8 @@ function onEnter() {
       wakeAt(game.shelter);
       startNight(game.night + 1);
     };
+  } else if (game.phase === 'rescued' && !scene.done) {
+    fade.action = endScene;
   } else if (game.phase === 'rescued' || game.phase === 'free') {
     fade.action = newGame;
   }
@@ -1605,6 +1616,7 @@ function updateGame(dt) {
     fade.k = Math.max(0, fade.k - dt / 0.8);
   }
   game.time += dt;
+  updateScene(dt);
   if (game.phase !== 'night') return;
   game.clock = Math.min(DAY_END, game.clock + dt / NIGHT_LEN);
   if (game.clock >= DAWN && !game.dawnWarned) { game.dawnWarned = true; flash = { text: "it's getting light — find somewhere to sleep", t: 3 }; }
@@ -1626,7 +1638,356 @@ function updateGame(dt) {
   updateStings(dt);
   if (game.energy < WEAK && !game.warned) { game.warned = true; flash = { text: 'getting weak — find ants', t: 2.5 }; }
   if (game.energy >= WEAK + 5) game.warned = false;
-  if (game.energy <= 0) { game.phase = 'rescued'; game.cause = game.clock >= 1 ? 'daylight' : 'energy'; }
+  if (game.energy <= 0) startRescue(game.clock >= 1 ? 'daylight' : 'energy');
+}
+
+// ---------- scenes: the release (intro) and the rescue ----------
+// A new game opens at dusk: a rescuer walks in with the tamandua in a travel cage, kneels, sets it
+// down and lifts the door. The tamandua walks out and the night begins, while the rescuer packs up
+// and leaves. Run out of energy and the same rescuer comes back: the tamandua slumps (climbing down
+// first if it's up a tree), and the rescuer kneels, gathers it up in their arms and carries it off.
+// Enter skips either. The rescuer is drawn like everything else: a dark silhouette, with a pale
+// headlamp beam.
+const puppet = {};   // keys the scene holds down for the tamandua while you can't (see `held`)
+const INTRO_CAM = 250, R_START = -340, R_KNEEL = 150, R_SPEED = 105;
+const CAGE_W = 136, CAGE_H = 64, CAGE_IN = 6;   // the tamandua sits CAGE_IN ahead of the cage's middle
+// cage: bottom-centre x/y, tilt, door (0 shut … 1 up); holds = the tamandua rides along inside
+const cage = { on: false, x: 0, y: 0, tilt: 0, door: 0, holds: false };
+const R_THIGH = 60, R_SHIN = 60, R_UPPER = 52, R_FORE = 50, R_TORSO = 82, R_HIP = 122;
+// k: 0 standing … 1 kneeling on one knee · lean: torso tipped forward · hand, hand2: world points
+// for the near and far hands (null hangs free) · look: world point the head and headlamp turn to ·
+// holds: the tamandua is in their near hand
+const rescuer = { on: false, x: 0, facing: 1, walk: 0, moving: 0, k: 0, lean: 0, hand: null, hand2: null, look: null, holds: false };
+// the scene playing: its steps, time in it, the current step and time in that step. x0 → kx is the
+// rescuer's walk in (kx is where they kneel), taking walkDur. camX pins the camera once set.
+const scene = { steps: [], t: 0, step: 0, st: 0, done: true, from: null, x0: 0, kx: 0, walkDur: 0, camX: null };
+const ease = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+const lerpPt = (p, q, t) => [lerp(p[0], q[0], t), lerp(p[1], q[1], t)];
+
+// where the cage hangs from the rescuer's hand, or sits on the ground in front of them
+function carryPose(dx = 30) {
+  const R = rescuer, bob = 2.5 * Math.abs(Math.sin(R.walk * TAU)) * R.moving;
+  return { x: R.x + dx * R.facing, y: groundY(R.x) - 42 + bob, tilt: 0.03 * Math.sin(R.walk * TAU) * R.moving };
+}
+const groundPose = () => ({ x: scene.kx + 40, y: groundY(scene.kx + 40), tilt: 0 });
+const setCage = (p) => Object.assign(cage, { x: p.x, y: p.y, tilt: p.tilt });
+const lerpPose = (p, q, t) => ({ x: lerp(p.x, q.x, t), y: lerp(p.y, q.y, t), tilt: lerp(p.tilt, q.tilt, t) });
+function cagePt(lx, ly) {
+  const c = Math.cos(cage.tilt), s = Math.sin(cage.tilt);
+  return [cage.x + lx * c - ly * s, cage.y + lx * s + ly * c];
+}
+const handle = () => cagePt(0, -CAGE_H - 9);
+const doorGrip = () => cagePt(CAGE_W / 2, -CAGE_H - 4 - cage.door * (CAGE_H - 6));
+const kneeRest = () => [rescuer.x + 30 * rescuer.facing, groundY(rescuer.x) - 62];
+const snout = () => [a.rx + 40 * a.rf, a.ry - 12];
+// the tamandua's middle, from underneath (where a hand goes to lift it) and on top of its back
+const belly = () => [a.rx - 7 * a.rf, a.ry - 16];
+const back = () => [a.rx - 2 * a.rf, a.ry - 40];
+// in front of the rescuer's chest: where they cradle the tamandua
+function chest() {
+  const { sh } = rescuerTrunk();
+  return [rescuer.x + (sh[0] + 30) * rescuer.facing, groundY(rescuer.x) + sh[1] + 62];
+}
+const ahead = (d) => [rescuer.x + d * rescuer.facing, groundY(rescuer.x + d * rescuer.facing)];
+
+// Steps run for `d` seconds, or until `until()` holds; `run(u, dt)` poses things (u runs 0 → 1
+// over a timed step). `enter` runs once as the step starts. These are shared by both scenes.
+const walkIn = (carrying, look) => ({ get d() { return scene.walkDur; }, run(u) {
+  const s = u < 0.8 ? u / 0.9 : 1 - (1 - u) ** 2 / 0.36;
+  const x = lerp(scene.x0, scene.kx, s);
+  rescuer.walk += (x - rescuer.x) / 96;
+  Object.assign(rescuer, { x, moving: u < 0.9 ? 1 : (1 - u) / 0.1, look: look() });
+  if (carrying) { setCage(carryPose()); rescuer.hand = handle(); }
+} });
+const walkOff = (carrying) => ({ until: () => !rescuer.on, enter() { scene.camX = cam.x; }, run(u, dt) {
+  rescuer.x += R_SPEED * dt * rescuer.facing; rescuer.walk += (R_SPEED * dt) / 96;
+  Object.assign(rescuer, { moving: 1, look: ahead(220) });
+  if (carrying) { setCage(carryPose()); rescuer.hand = handle(); }
+  else { rescuer.hand = chest(); rescuer.hand2 = back(); }
+  if (Math.abs(rescuer.x - cam.x) > cw / sc / 2 + 200) rescuer.on = cage.on = false;
+} });
+
+const INTRO_STEPS = [
+  walkIn(true, () => ahead(220)),
+  { d: 1.3, enter() { scene.from = carryPose(); }, run(u) {   // kneel and set it down
+    const e = ease(u);
+    Object.assign(rescuer, { k: e, lean: 0.8 * e, moving: 0, look: cagePt(CAGE_W / 2, -20) });
+    setCage(lerpPose(scene.from, groundPose(), e)); rescuer.hand = handle();
+  } },
+  { d: 0.5, run(u) { rescuer.hand = lerpPt(handle(), doorGrip(), ease(u)); } },   // reach for the door
+  { d: 1.0, run(u) { cage.door = ease(u); rescuer.hand = doorGrip(); } },          // lift it
+  { d: 0.8, run() { rescuer.hand = doorGrip(); rescuer.look = snout(); } },
+  { d: 0.8, enter() { cage.holds = false; puppet.ArrowRight = true; }, run(u) {    // let go, sit back
+    rescuer.hand = lerpPt(doorGrip(), kneeRest(), ease(u));
+    rescuer.lean = lerp(0.8, 0.35, ease(u)); rescuer.look = snout();
+  } },
+  { until: () => a.x >= START_X, run() { rescuer.hand = kneeRest(); rescuer.look = snout(); } },
+  { d: 0.8, enter() { puppet.ArrowRight = false; handOver(); }, run() { rescuer.hand = kneeRest(); rescuer.look = snout(); } },
+  { d: 0.5, run(u) { rescuer.hand = lerpPt(kneeRest(), handle(), ease(u)); } },    // take the handle
+  { d: 1.2, run(u) {                                                               // stand up with it
+    const e = ease(u);
+    Object.assign(rescuer, { k: 1 - e, lean: 0.35 * (1 - e), look: snout() });
+    setCage(lerpPose(groundPose(), carryPose(), e)); rescuer.hand = handle();
+  } },
+  { d: 0.5, run(u) {   // turn for home
+    if (u >= 0.5) rescuer.facing = -1;
+    const p = carryPose(); p.x = rescuer.x + lerp(30, -30, ease(u));
+    setCage(p); rescuer.hand = handle();
+  } },
+  walkOff(true),
+];
+
+const RESCUE_STEPS = [
+  { until: () => a.mode === 'ground' || scene.st > 20, run() {   // too weak to stay up a tree: climb down
+    for (const k in puppet) puppet[k] = false;
+    if (a.mode === 'branch') { puppet[a.branch.dir > 0 ? 'ArrowLeft' : 'ArrowRight'] = true; puppet.ArrowDown = true; }
+    else if (a.mode === 'trunk') puppet.ArrowDown = true;
+  } },
+  { d: 1.6, enter() {   // it slumps; the rescuer sets off towards it from out of sight on the left
+    for (const k in puppet) puppet[k] = false;
+    if (a.mode !== 'ground') Object.assign(a, { mode: 'ground', tree: null, branch: null, x: a.rx, vel: 0 });
+    a.slump = true;
+    scene.kx = belly()[0] - 73;
+    scene.x0 = a.rx - 60 - cw / sc / 2 - 150;
+    scene.walkDur = (scene.kx - scene.x0) / R_SPEED;
+    Object.assign(rescuer, { on: true, x: scene.x0, facing: 1, walk: 0, moving: 1, k: 0, lean: 0, hand: null, hand2: null, holds: false });
+  }, run() {} },
+  walkIn(false, () => back()),
+  { d: 1.3, run(u) {   // kneel beside it
+    const e = ease(u);
+    Object.assign(rescuer, { k: e, lean: 0.6 * e, moving: 0, look: back() });
+  } },
+  { d: 0.8, run() {} },
+  { d: 0.8, run(u) {   // reach underneath it
+    const e = ease(u);
+    rescuer.lean = lerp(0.6, 1, e);
+    rescuer.hand = lerpPt(kneeRest(), belly(), e);
+  } },
+  { d: 1.4, enter() { rescuer.holds = true; scene.from = rescuer.hand; }, run(u) {   // gather it up
+    const e = ease(u);
+    rescuer.lean = lerp(1, 0.3, e);
+    rescuer.hand = lerpPt(scene.from, chest(), e);
+    rescuer.hand2 = u > 0.3 ? back() : null;
+    a.curl = e;
+  } },
+  { d: 1.4, run(u) {   // stand up with it
+    const e = ease(u);
+    Object.assign(rescuer, { k: 1 - e, lean: 0.3 * (1 - e) });
+    rescuer.hand = chest(); rescuer.hand2 = back();
+  } },
+  { d: 0.6, run(u) {   // turn for home
+    if (u >= 0.5) rescuer.facing = a.facing = -1;
+    rescuer.hand = chest(); rescuer.hand2 = back(); rescuer.look = ahead(220);
+  } },
+  walkOff(false),
+];
+
+function playScene(steps) {
+  Object.assign(scene, { steps, t: 0, step: 0, st: 0, done: false, camX: null });
+  for (const k in puppet) puppet[k] = false;
+}
+function updateScene(dt) {
+  if (scene.done) return;
+  scene.t += dt;
+  const s = scene.steps[scene.step];
+  if (scene.st === 0 && s.enter) s.enter();
+  scene.st += dt;
+  s.run(s.d ? Math.min(1, scene.st / s.d) : 0, dt);
+  if (s.d ? scene.st >= s.d : s.until()) {
+    scene.st = 0;
+    if (++scene.step >= scene.steps.length) scene.done = true;
+  }
+  // the tail stays curled round while it's in the cage or being carried
+  if (!rescuer.holds) a.curl = lerp(a.curl || 0, cage.on && a.x < cage.x + CAGE_W / 2 ? 1 : 0, 1 - Math.exp(-dt * 3));
+  if (game.phase === 'rescued' && scene.done) a.hidden = true;   // carried away
+}
+
+function startIntro() {
+  startNight(1);          // deals tonight's species and refills the forest
+  game.phase = 'intro';
+  flash.t = 0;
+  playScene(INTRO_STEPS);
+  Object.assign(scene, { x0: R_START, kx: R_KNEEL, walkDur: 4.6 });
+  Object.assign(rescuer, { on: true, x: R_START, facing: 1, walk: 0, moving: 1, k: 0, lean: 0, hand: null, hand2: null, holds: false });
+  Object.assign(cage, { on: true, door: 0, holds: true });
+  a.curl = 1;
+  INTRO_STEPS[0].run(0);
+  holdTamandua();
+  cam.x = INTRO_CAM;
+  fade.k = 1;             // fade in from dark
+}
+// the tamandua is out: the night starts and it's yours
+function handOver() {
+  game.phase = 'night';
+  flash = { text: 'night 1', t: 2.5 };
+}
+function skipIntro() {
+  endScene();
+  Object.assign(a, { mode: 'ground', x: START_X, vel: 0, facing: 1, rx: START_X, ry: groundY(START_X), rt: 0, rf: 1 });
+  cam.x = START_X + 90;
+  handOver();
+}
+// out of energy: the rescuer comes for it
+function startRescue(cause) {
+  Object.assign(game, { phase: 'rescued', cause });
+  flash.t = found.t = 0;
+  memOpen = false;
+  playScene(RESCUE_STEPS);
+}
+function endScene() {
+  for (const k in puppet) puppet[k] = false;
+  scene.done = true;
+  rescuer.on = rescuer.holds = cage.on = cage.holds = false;
+  a.curl = 0;
+  if (game.phase === 'rescued') a.hidden = true;
+}
+// while the cage is carried or set down with the door still shut, the tamandua rides inside it;
+// while the rescuer holds it, it's cradled in their hand, nose tipped up
+function holdTamandua() {
+  let x, y;
+  if (cage.holds) { [x, y] = cagePt(CAGE_IN, -5); a.rt = cage.tilt; }
+  else if (rescuer.holds && rescuer.hand) { x = rescuer.hand[0] + 7 * a.rf; y = rescuer.hand[1] + 16; a.rt = -0.3 * a.rf; }
+  else return;
+  Object.assign(a, { x, rx: x, ry: y, vel: 0 });
+}
+
+// two-bone IK: the joint between (x0, y0) and (x1, y1); s = 1 bends it forward (+x), −1 back
+function ik(x0, y0, x1, y1, l1, l2, s) {
+  const dx = x1 - x0, dy = y1 - y0, d = clamp(Math.hypot(dx, dy), Math.abs(l1 - l2) + 0.01, l1 + l2 - 0.01);
+  const b = Math.atan2(dy, dx) - s * Math.acos((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d));
+  return [x0 + l1 * Math.cos(b), y0 + l1 * Math.sin(b)];
+}
+// the rescuer's joints, in local space: feet at the origin, facing +x
+function rescuerTrunk() {
+  const R = rescuer, p = R.walk * TAU;
+  const hip = lerpPt([0, -R_HIP + 2 * Math.cos(2 * p) * R.moving], [-28, -66], ease(R.k));
+  return { hip, sh: [hip[0] + Math.sin(R.lean) * R_TORSO, hip[1] - Math.cos(R.lean) * R_TORSO] };
+}
+function rescuerPose() {
+  const R = rescuer, k = ease(R.k), mv = R.moving, p = R.walk * TAU;
+  const toLocal = (w) => [(w[0] - R.x) * R.facing, w[1] - groundY(R.x)];
+  const { hip, sh } = rescuerTrunk();
+  const foot = (ph, base) => [base + 24 * Math.sin(ph) * mv, -5 - Math.max(0, Math.cos(ph)) * 12 * mv];
+  const nearAnkle = lerpPt(foot(p, 4), [30, -5], k), farAnkle = lerpPt(foot(p + Math.PI, -4), [-84, -6], k);
+  const look = R.look ? toLocal(R.look) : [sh[0] + 100, sh[1]];
+  const neck = [sh[0] + Math.sin(R.lean * 0.6) * 24 + 3, sh[1] - Math.cos(R.lean * 0.6) * 24];
+  const head = clamp(Math.atan2(look[1] - neck[1], look[0] - neck[0]), -0.4, 0.9);
+  // hands hang and swing when free, rest on the raised knee when kneeling
+  const hang = (sw) => lerpPt([sh[0] + 6 + sw * 18 * Math.sin(p) * mv, sh[1] + 90], [30, -62], k);
+  return {
+    hip, sh, neck, head,
+    near: { hip, ankle: nearAnkle, knee: ik(...hip, ...nearAnkle, R_THIGH, R_SHIN, 1), toe: 0 },
+    far: { hip, ankle: farAnkle, knee: ik(...hip, ...farAnkle, R_THIGH, R_SHIN, 1), toe: 2.2 * k },
+    nearHand: R.hand ? toLocal(R.hand) : hang(-1), farHand: R.hand2 ? toLocal(R.hand2) : hang(1),
+  };
+}
+function drawRescuerParts(P, layer) {
+  const parts = [];
+  const part = () => { const q = new Path2D(); parts.push(q); return q; };
+  const leg = (L) => {
+    limb(part(), ...L.hip, ...L.knee, 20, 16);
+    limb(part(), ...L.knee, ...L.ankle, 15, 11);
+    limb(part(), ...L.ankle, L.ankle[0] + 18 * Math.cos(L.toe), L.ankle[1] + 3 + 18 * Math.sin(L.toe), 12, 9);
+  };
+  const arm = (hand) => {
+    const el = ik(...P.sh, ...hand, R_UPPER, R_FORE, -1);
+    limb(part(), ...P.sh, ...el, 14, 11);
+    limb(part(), ...el, ...hand, 11, 9);
+    circ(part(), ...hand, 5.5);
+  };
+  if (layer === 'front') { arm(P.nearHand); return parts; }
+  arm(P.farHand);
+  leg(P.far);
+  leg(P.near);
+  limb(part(), ...P.hip, ...P.sh, 34, 36);
+  circ(part(), P.hip[0] - 4, P.hip[1], 17);
+  // backpack
+  const bx = -Math.cos(rescuer.lean) * 20, by = -Math.sin(rescuer.lean) * 20;
+  const bp = (f) => [lerp(P.hip[0], P.sh[0], f) + bx, lerp(P.hip[1], P.sh[1], f) + by];
+  limb(part(), ...bp(0.35), ...bp(0.85), 24, 28);
+  limb(part(), ...P.sh, ...P.neck, 13, 12);
+  // head, cap brim, headlamp: turned toward where they're looking
+  const hc = Math.cos(P.head), hs = Math.sin(P.head);
+  const hp = (x, y) => [P.neck[0] + x * hc - y * hs, P.neck[1] + x * hs + y * hc];
+  circ(part(), ...hp(3, -14), 18);
+  circ(part(), ...hp(20, -9), 3.5);                     // nose
+  limb(part(), ...hp(2, -28), ...hp(30, -23), 8, 4);   // cap brim
+  circ(part(), ...hp(18, -21), 4.5);                    // headlamp
+  return parts;
+}
+// layer 'back': the beam and everything but the near arm (behind the tamandua and the cage);
+// layer 'front': the near arm, which holds the cage
+function drawRescuer(rim, layer) {
+  if (!rescuer.on) return;
+  const P = rescuerPose();
+  ctx.save();
+  ctx.translate(rescuer.x, groundY(rescuer.x));
+  ctx.scale(rescuer.facing, 1);
+  if (layer === 'back' && !rim) {
+    // headlamp: a soft pale cone, stronger as it gets dark
+    const hc = Math.cos(P.head), hs = Math.sin(P.head);
+    const lx = P.neck[0] + 18 * hc + 21 * hs, ly = P.neck[1] + 18 * hs - 21 * hc;
+    const g = ctx.createRadialGradient(lx, ly, 0, lx, ly, 320);
+    const c = mix(pal.bottom, [255, 255, 255], 0.8);
+    g.addColorStop(0, css(c, 0.28 + 0.2 * pal.glow));
+    g.addColorStop(1, css(c, 0));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.moveTo(lx, ly); ctx.arc(lx, ly, 320, P.head - 0.2, P.head + 0.2); ctx.closePath(); ctx.fill();
+  }
+  const parts = drawRescuerParts(P, layer);
+  ctx.fillStyle = ctx.strokeStyle = rim ? css(mix(pal.bottom, [255, 255, 255], 0.35), 0.9) : css(pal.ink);
+  ctx.lineWidth = 3.4; ctx.lineJoin = 'round';
+  for (const q of parts) { ctx.fill(q); if (rim) ctx.stroke(q); }
+  ctx.restore();
+}
+// a travel cage seen side-on: tray, roof, handle, bars, and a door at the front end that slides up
+// in its rails. Drawn with strokes, so overlapping bars can't cancel out.
+function drawCage(rim) {
+  if (!cage.on) return;
+  const W = CAGE_W / 2, H = CAGE_H, lift = cage.door * (H - 6);
+  ctx.save();
+  ctx.translate(cage.x, cage.y);
+  ctx.rotate(cage.tilt);
+  ctx.lineCap = ctx.lineJoin = 'round';
+  ctx.strokeStyle = rim ? css(mix(pal.bottom, [255, 255, 255], 0.35), 0.9) : css(pal.ink);
+  const line = (w, pts) => {
+    ctx.lineWidth = w + (rim ? 2.4 : 0);
+    ctx.beginPath(); ctx.moveTo(...pts[0]); for (const q of pts.slice(1)) ctx.lineTo(...q); ctx.stroke();
+  };
+  line(6, [[-W, -3], [W, -3]]);                          // tray
+  line(6, [[-W, -H + 3], [W, -H + 3]]);                  // roof
+  line(5, [[-W, -3], [-W, -H + 3]]);                     // back end
+  line(4, [[-12, -H], [-9, -H - 9], [9, -H - 9], [12, -H]]);   // handle
+  for (let x = -W + 11; x < W - 4; x += 11) line(2, [[x, -5], [x, -H + 5]]);
+  line(2, [[W - 4, -3], [W - 4, -2 * H + 2]]);           // door rails, up past the roof
+  line(2, [[W + 4, -3], [W + 4, -2 * H + 2]]);
+  line(3, [[W - 4, -4 - lift], [W + 4, -4 - lift], [W + 4, -H - lift], [W - 4, -H - lift], [W - 4, -4 - lift]]);
+  line(4, [[W - 2, -H - 2 - lift], [W + 2, -H - 6 - lift]]);   // the tab you lift it by
+  ctx.restore();
+}
+// captions during a scene, and a way out of it
+function drawSceneText(label) {
+  const t = scene.t;
+  const cap = (text, t0, t1, y) => {
+    const al = clamp(Math.min(t - t0, t1 - t), 0, 1);
+    if (al <= 0) return;
+    ctx.font = '600 20px ui-rounded, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = css(pal.ink, 0.75 * al);
+    label(text, cw / 2, y);
+  };
+  if (game.phase === 'intro') {
+    cap('raised in rehab, a young tamandua is going back to the forest', 0.8, 5, 70);
+    cap('survive three nights on your own', 6, 10.5, 70);
+  } else {
+    cap(game.cause === 'daylight' ? 'caught out in the daylight' : 'too weak to go on', 0.3, 5, 70);
+  }
+  if (scene.done) return;
+  ctx.font = '13px system-ui, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillStyle = css(pal.ink, 0.5);
+  label('Enter  skip', cw - 20, ch - 20);
+  ctx.textAlign = 'left';
 }
 
 // ---------- termite swarms ----------
@@ -2080,10 +2441,15 @@ function render(time, dt) {
 
   drawScent(viewHalf);
 
-  if (game.phase !== 'dawn') {  // tucked away asleep otherwise
+  if (rimOn) drawRescuer(true, 'back');
+  drawRescuer(false, 'back');
+  if (game.phase !== 'dawn' && !a.hidden) {  // tucked away asleep, or carried off
     if (rimOn) drawTamandua(time, true);
     drawTamandua(time, false);
   }
+  if (rimOn) drawCage(true);
+  drawCage(false);
+  drawRescuer(false, 'front');   // no rim: it's in front of the body
   drawTongue();
   drawWelts(dt);
 
@@ -2120,6 +2486,17 @@ function render(time, dt) {
   ctx.lineWidth = 3;
   ctx.strokeStyle = css(mix(pal.bottom, [255, 255, 255], 0.3), 0.55);
   ctx.fillStyle = css(pal.ink, 0.75);
+  if (game.phase === 'intro' || game.phase === 'rescued') drawSceneText(label);
+  else drawHUD(time, dt, label);
+  drawCard(label);
+  if (fade.k > 0) {
+    ctx.fillStyle = css(pal.ink, fade.k);
+    ctx.fillRect(0, 0, cw, ch);
+  }
+}
+
+// title, stats, help and messages while you play
+function drawHUD(time, dt, label) {
   ctx.font = '600 18px ui-rounded, system-ui, sans-serif';
   label('slurp', 20, 34);
   ctx.font = '13px system-ui, sans-serif';
@@ -2156,11 +2533,6 @@ function render(time, dt) {
     ctx.fillStyle = css(pal.ink, Math.min(1, found.t * 1.5) * 0.75);
     label(SCENTS[found.species].name, cw / 2, 88);
     ctx.textAlign = 'left';
-  }
-  drawCard(label);
-  if (fade.k > 0) {
-    ctx.fillStyle = css(pal.ink, fade.k);
-    ctx.fillRect(0, 0, cw, ch);
   }
 }
 
@@ -2251,7 +2623,8 @@ canvas.addEventListener('mousemove', (e) => {
 
 // end-of-night / game-over / win card
 function drawCard(label) {
-  if (game.phase === 'night' || fade.action) return;
+  if (game.phase === 'night' || game.phase === 'intro' || fade.action) return;
+  if (game.phase === 'rescued' && !scene.done) return;   // the rescue plays out first
   let lines;
   if (game.phase === 'dawn') {
     const fed = game.tonight >= NIGHT_TARGET;
@@ -2307,10 +2680,13 @@ function frame(now) {
   zoom = lerp(zoom, closeUp ? 2.4 : 1, 1 - Math.exp(-dt * 4));
   sc = (ch / VIEW_H) * zoom;
   const zk = (zoom - 1) / 1.4;  // 0 wide … 1 close-up
-  cam.x += (a.rx + a.facing * lerp(90, 20, zk) - cam.x) * (1 - Math.exp(-dt * 1.6));
+  const camX = game.phase === 'intro' ? INTRO_CAM
+    : game.phase === 'rescued' ? scene.camX ?? a.rx - 60
+    : a.rx + a.facing * lerp(90, 20, zk);
+  cam.x += (camX - cam.x) * (1 - Math.exp(-dt * 1.6));
   cam.y += (lerp(Math.min(-120, a.ry - 40), a.ry - 10, zk) - cam.y) * (1 - Math.exp(-dt * 2));
   render(time, dt);
   requestAnimationFrame(frame);
 }
-flash = { text: 'night 1', t: 2.5 };
+newGame();
 requestAnimationFrame(frame);
