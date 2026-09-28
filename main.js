@@ -1731,7 +1731,16 @@ const INTRO_STEPS = [
     Object.assign(rescuer, { k: 1 - e, lean: 0.35 * (1 - e), look: snout() });
     setCage(lerpPose(groundPose(), carryPose(), e)); rescuer.hand = handle();
   } },
+  { d: 2.4, run(u) {   // a gentle wave goodbye with the free hand
+    const { sh } = rescuerTrunk();
+    const up = ease(Math.min(u, 1 - u) / 0.18);   // raise it, wave, lower it
+    const hang = [sh[0] + 6, sh[1] + 90], wave = [sh[0] + 44 + 10 * Math.sin(scene.st * 8), sh[1] - 46];
+    const [lx, ly] = lerpPt(hang, wave, up);
+    rescuer.hand2 = [rescuer.x + lx * rescuer.facing, groundY(rescuer.x) + ly];
+    rescuer.look = snout();
+  } },
   { d: 0.5, run(u) {   // turn for home
+    rescuer.hand2 = null;
     if (u >= 0.5) rescuer.facing = -1;
     const p = carryPose(); p.x = rescuer.x + lerp(30, -30, ease(u));
     setCage(p); rescuer.hand = handle();

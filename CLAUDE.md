@@ -78,7 +78,8 @@ skips them (`skipIntro` / `endScene`). The rescuer is one person with a cap and 
 beam is a pale cone) walks in carrying the tamandua in a travel cage, kneels, sets it down and
 lifts the guillotine door. The tamandua walks out to `START_X`, driven by the `puppet` keys that
 `held()` reads outside the night, and then control hands over (`handOver`) and night 1 starts. The
-rescuer keeps going on their own: they stand, pick up the cage and walk off left. The script is
+rescuer keeps going on their own: they stand, pick up the cage, give Tupāra a gentle wave with
+their free hand (`hand2`), and walk off left. The script is
 `INTRO_STEPS`. While `cage.holds`, `holdTamandua()` pins the tamandua inside, and `a.curl` curls
 its tail.
 The rescuer is built from `limb`/`circ` with a separate path per part. The near arm is drawn
