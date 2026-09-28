@@ -257,7 +257,7 @@ function buildLitter(n) {
 function restoreNest(n) {
   n.holes = new Path2D(); n.tunnels = new Path2D();
   n.crust = n.T.crust; n.stock = n.T.stock; n.damaged = false; n.stir = -1; n.alarm = 0;
-  n.breaches = 0; n.brood = n.T.brood;
+  n.breaches = 0; n.brood = n.T.brood; n.rang = false;
   if (n.snap) { n.snap = null; n.branch.broken = false; }
   for (const s of n.samples) if (!s.spill) s.cut = false;
   if (n.leaves) { for (const l of n.leaves) l.gone = false; buildLitter(n); }
@@ -804,7 +804,9 @@ let rimOn = true, helpOn = true, closeUp = false, showSpecies = false, flash = {
 addEventListener('keydown', (e) => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   keys[e.code] = true;
+  wakeAudio();
   if (e.repeat) return;
+  if (e.code === 'KeyM') toggleMute();
   if (e.code === 'Enter') onEnter();
   if (game.phase === 'title' && e.key === '?') title.how = !title.how;
   if (game.phase === 'title' && e.code === 'Escape') title.how = false;
@@ -951,6 +953,11 @@ function updateTamandua(dt, time) {
   }
   updateTongue(dt, time, sniffing);
   holdTamandua();
+  // dropped with a snapping branch: thump as it hits the ground
+  if (a.falling && (a.mode !== 'ground' || a.ry > groundY(a.rx) - 4)) {
+    a.falling = false;
+    if (a.mode === 'ground') sfx('thud');
+  }
 }
 
 function updateClaw(dt, clawKey) {
@@ -985,6 +992,7 @@ function findClawTarget(px, py) {
 
 function hitNest(n, s, dir) {
   n.damaged = true; n.quiet = 0;
+  sfx('rip');
   if (n.crust > 0) {
     // still chipping through the hard outer wall: a dent and some grit, no ants yet
     n.crust--;
@@ -1006,6 +1014,7 @@ function hitNest(n, s, dir) {
     const k = Math.min(n.brood, randInt(2, 3));
     n.brood -= k;
     for (let i = 0; i < k; i++) ants.push({ kind: 'honey', nest: n, home: n, wx: s.x + rand(-5, 5), wy: s.y + rand(-5, 5), state: 'live' });
+    if (!n.rang) { n.rang = true; sfx('bees'); }   // the first honey from this hive tonight
   } else if (n.breaches > BROOD_AFTER && n.brood > 0 && Math.random() < BROOD_CHANCE) {
     const k = Math.min(n.brood, randInt(3, 5));
     n.brood -= k;
@@ -1055,8 +1064,11 @@ function snapBranch(n) {
   }
   shake = 5;
   flash = { text: 'crack — the branch snapped!', t: 2 };
+  sfx('snap');
   if (a.mode === 'branch' && a.branch === b) {
-    // and the tamandua goes down with it
+    // and the tamandua goes down with it (the thud is when it lands, not the branch)
+    n.snap.quiet = true;
+    a.falling = true;
     setMode('ground');
     a.x = clamp(a.rx, 60, WORLD_W - 60);
     a.flinch = 0.6;
@@ -1074,6 +1086,7 @@ function updateSnap(n, dt) {
       sn.landed = true;
       sn.dy = groundY(sn.cx) - 6 - sn.cy;
       shake = 4;
+      if (!sn.quiet) sfx('thud');
       spawnDebris(sn.cx, sn.cy + sn.dy, 1, 8, 'chunk');
       spawnDebris(sn.cx, sn.cy + sn.dy, -1, 8, 'chunk');
       // it splits open where it lands: everything left inside pours out onto the ground
@@ -1556,6 +1569,7 @@ function spend(e) { if (game.phase === 'night') game.energy = Math.max(0, game.e
 function eatAnt(ant) {
   const home = ant.home, sp = SPECIES[home.species];
   game.tonight++; game.total++;
+  sfx('eat');
   const gain = ant.kind === 'honey' ? HONEY_ENERGY : sp.energy * (ant.kind === 'brood' ? 2 : 1);
   game.energy = Math.min(E_MAX, game.energy + gain);
   if (ant.kind === 'honey') flash = { text: 'honey!', t: 1.2 };
@@ -1574,6 +1588,7 @@ function sting(where, species) {
   const sp = SPECIES[species] || {};
   if (species) tasted(species).stings++;
   game.stings++;
+  sfx(species === 'bullet' ? 'bullet' : 'sting');
   spend(sp.hurt || STING_COST);
   a.flinch = sp.flinch || 0.6; a.tongueCd = Math.max(a.tongueCd, (sp.flinch || 0.6) + 0.2);
   shake = sp.hurt > 5 ? 9 : sp.hurt < 1 ? 1 : 3;
@@ -1683,7 +1698,7 @@ function newGame() {
     rx: START_X, ry: groundY(START_X), rt: 0, rf: 1,
   });
   a.claw.t = -1; a.tongue.t = -1; a.tongue.target = null; a.flinch = 0;
-  a.slump = a.hidden = a.greet = false;
+  a.slump = a.hidden = a.greet = a.falling = false;
   cam.x = START_X + 90;
   Object.assign(game, { energy: E_START, total: 0, riverSeen: false });
   for (const k in journal) delete journal[k];     // a fresh start: the nose memory is earned again
@@ -1723,6 +1738,7 @@ function onEnter() {
     const s = shelterHere();
     if (!s) return;
     if (game.clock < DAWN) { flash = { text: 'too early — keep feeding until it gets light', t: 2.2 }; return; }
+    sfx('shelter');
     fade.action = () => { game.phase = 'dawn'; game.shelter = s; game.learned = commitMemory(); };
   } else if (game.phase === 'dawn') {
     fade.action = game.night >= NIGHTS ? startFree : () => {
@@ -1774,6 +1790,99 @@ function updateGame(dt) {
   if (game.energy < WEAK && !game.warned) { game.warned = true; flash = { text: 'getting weak — find ants', t: 2.5 }; }
   if (game.energy >= WEAK + 5) game.warned = false;
   if (game.energy <= 0) startRescue(game.clock >= 1 ? 'daylight' : 'energy');
+}
+
+// ---------- sound ----------
+// Subtle effects, all made in code (Web Audio), with no files. They were chosen on
+// tools/sounds.html, which has the other variants. The audio starts on the first key or click
+// (browsers won't play before one), and M mutes.
+const sound = { ac: null, out: null, kit: null, muted: false };
+try { sound.muted = localStorage.getItem('tupara-muted') === '1'; } catch (e) {}
+function wakeAudio() {
+  if (!sound.ac) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    sound.ac = new AC();
+    sound.out = sound.ac.createGain();
+    sound.out.gain.value = 0.7;
+    const comp = sound.ac.createDynamicsCompressor();   // a safety net against sudden peaks
+    sound.out.connect(comp); comp.connect(sound.ac.destination);
+    sound.kit = makeSfx(sound.ac, sound.out);
+  }
+  if (sound.ac.state === 'suspended') sound.ac.resume();
+}
+function sfx(name) {
+  if (sound.muted || !sound.kit || sound.ac.state !== 'running') return;
+  sound.kit[name](sound.ac.currentTime + 0.01);
+}
+function toggleMute() {
+  sound.muted = !sound.muted;
+  try { localStorage.setItem('tupara-muted', sound.muted ? '1' : '0'); } catch (e) {}
+  flash = { text: sound.muted ? 'sound off' : 'sound on', t: 1.2 };
+}
+function makeSfx(ac, out) {
+  const r = (a, b) => a + (b - a) * Math.random();
+  const noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+  { const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+  // a gain envelope: silent → peak over `a` s → fades out over `d` s
+  function env(t, a, d, peak, dest = out) {
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(peak, t + a);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + a + d);
+    g.connect(dest);
+    return g;
+  }
+  // an oscillator gliding f0 → f1
+  function tone(t, type, f0, f1, a, d, peak, dest = out) {
+    const o = ac.createOscillator();
+    o.type = type;
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(f1, t + a + d);
+    o.connect(env(t, a, d, peak, dest)); o.start(t); o.stop(t + a + d + 0.05);
+  }
+  // filtered noise, the filter sweeping f0 → f1
+  function noise(t, type, f0, f1, q, a, d, peak) {
+    const s = ac.createBufferSource(), f = ac.createBiquadFilter();
+    s.buffer = noiseBuf; s.loop = true;
+    f.type = type; f.Q.value = q;
+    f.frequency.setValueAtTime(f0, t);
+    f.frequency.exponentialRampToValueAtTime(f1, t + a + d);
+    s.connect(f); f.connect(env(t, a, d, peak));
+    s.start(t, r(0, 0.9)); s.stop(t + a + d + 0.05);
+  }
+  // a crackle: tiny noise grains scattered over `span` s
+  function grains(t, n, span, type, lo, hi, q, peak, len = [0.008, 0.03]) {
+    for (let i = 0; i < n; i++) noise(t + span * Math.random() ** 1.3, type, r(lo, hi), r(lo, hi), q, 0.002, r(...len), peak * r(0.4, 1));
+  }
+  function warm(freq) {
+    const f = ac.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = freq; f.connect(out);
+    return f;
+  }
+  return {
+    // an ant or termite eaten: a soft blip
+    eat: (t) => tone(t, 'sine', r(1100, 1500), r(850, 1000), 0.004, 0.05, 0.07),
+    // a claw strike into a nest: an earthy scrape
+    rip: (t) => { noise(t, 'bandpass', 400, 1300, 1.2, 0.02, 0.22, 0.12); grains(t, 11, 0.28, 'lowpass', 500, 1100, 1, 0.3, [0.01, 0.04]); },
+    // stung: a double nip, and a bullet ant much worse
+    sting: (t) => { tone(t, 'triangle', 950, 700, 0.002, 0.05, 0.12); tone(t + 0.06, 'triangle', 720, 520, 0.002, 0.07, 0.1); },
+    bullet: (t) => { tone(t, 'sawtooth', 340, 110, 0.004, 0.32, 0.16, warm(2200)); noise(t, 'bandpass', 1800, 700, 1.5, 0.002, 0.18, 0.14); },
+    // settling into a shelter: a three-note lullaby
+    shelter: (t) => [659.3, 554.4, 440].forEach((f, i) => {
+      tone(t + i * 0.38, 'sine', f, f, 0.02, 1.3, 0.06);
+      tone(t + i * 0.38, 'sine', f * 2, f * 2, 0.02, 0.5, 0.012);
+    }),
+    // a branch snapping (crack, splinters, leaves) … and the thud when something hits the ground
+    snap: (t) => {
+      noise(t, 'highpass', 2200, 1500, 0.7, 0.001, 0.04, 0.3);
+      grains(t + 0.02, 10, 0.25, 'bandpass', 1200, 3200, 2, 0.18);
+      noise(t + 0.05, 'highpass', 3000, 5000, 0.5, 0.05, 0.4, 0.05);
+    },
+    thud: (t) => { tone(t, 'sine', 95, 42, 0.004, 0.38, 0.3); grains(t + 0.01, 6, 0.12, 'lowpass', 300, 700, 1, 0.2); },
+    // finding the stingless bees' honey: a marimba run
+    bees: (t) => [784, 1046.5, 1318.5, 1568].forEach((f, i) => tone(t + i * 0.09, 'triangle', f, f, 0.003, 0.28, 0.08)),
+  };
 }
 
 // ---------- scenes: the release (intro) and the rescue ----------
@@ -2777,7 +2886,7 @@ function drawHUD(time, dt, label) {
       '← →  on a trunk: step onto a branch',
       'X  rip into a nest     hold Space  eat ants',
       'Shift  hurry     Enter  sleep in a shelter, once it gets light',
-      'Z  close-up     C  scent tint',
+      'Z  close-up     C  scent tint     M  sound on/off',
       `R  rim: ${rimOn ? 'on' : 'off'}     H  hide     testing:  ]  skip 30 s   N  next night   T  next shelter   L  label species`,
     ];
     lines.forEach((l, i) => label(l, 20, 82 + i * 18));
@@ -2878,6 +2987,7 @@ function drawMemoryButton(x, y, w, label) {
   });
 }
 canvas.addEventListener('click', (e) => {
+  wakeAudio();
   const r = canvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
   const tb = titleBtnAt(mx, my);
   if (tb) { tb.act(); return; }
@@ -2909,7 +3019,7 @@ const HOW_TO = [
 const HOW_KEYS = [
   '← →  walk          ↑ ↓  climb at a trunk          ← → on a trunk  step onto a branch',
   'X  rip into a nest          hold Space  eat ants          Shift  hurry',
-  'Enter  sleep in a shelter          Z  close-up          C  scent tint          H  hide help',
+  'Enter  sleep in a shelter          Z  close-up          C  scent tint          M  sound          H  hide help',
 ];
 const TITLE_FADE = 0.8;
 const title = { how: false, btns: [], leaving: 0 };   // leaving: seconds left of the fade-out after Play

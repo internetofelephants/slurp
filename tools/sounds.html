@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tupāra sounds</title>
+  <style>
+    :root {
+      --bg: #1a1714; --card: #26211d; --ink: #efe6da; --dim: #b3a797; --line: #3a332c;
+      --pick: #8f3b36; /* the tongue's red */
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, sans-serif; }
+    main { max-width: 860px; margin: 0 auto; padding: 28px 16px 60px; }
+    h1 { font: 600 28px ui-rounded, system-ui, sans-serif; margin: 0 0 4px; }
+    .lede { color: var(--dim); margin: 0 0 20px; }
+    .bar { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-bottom: 22px; }
+    .bar label { color: var(--dim); display: flex; align-items: center; gap: 8px; }
+    input[type=range] { width: 160px; accent-color: var(--ink); }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-bottom: 14px; }
+    .card h2 { font: 600 17px ui-rounded, system-ui, sans-serif; margin: 0; }
+    .card p { color: var(--dim); margin: 2px 0 12px; font-size: 14px; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; }
+    button { font: 500 14px system-ui, sans-serif; color: var(--ink); background: #342d27; border: 1px solid var(--line);
+      border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+    button:hover { background: #3f372f; }
+    button.demo { background: transparent; border-style: dashed; }
+    .variant { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+    .variant button { border: 0; border-radius: 0; }
+    .variant .star { padding: 8px 10px; color: var(--dim); background: #2d2722; }
+    .variant.picked { border-color: var(--pick); }
+    .variant.picked .star { color: var(--ink); background: var(--pick); }
+    .picks { background: var(--card); border: 1px dashed var(--line); border-radius: 12px; padding: 12px 16px; color: var(--dim); }
+    .picks b { color: var(--ink); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Tupāra sounds</h1>
+  <p class="lede">Every sound is made in code (Web Audio), with no files. Try the variants and ★ the one you
+    like for each. Your picks are listed at the bottom, so you can just tell me the letters.</p>
+  <div class="bar">
+    <label>volume <input id="vol" type="range" min="0" max="1" step="0.01" value="0.7"></label>
+    <button id="all">play every favourite</button>
+  </div>
+  <div id="cards"></div>
+  <p class="picks" id="picks"></p>
+</main>
+
+<script>
+// ---------- the sound kit (this is what goes into main.js) ----------
+// makeSfx(ac, out) returns the sounds as functions of a start time t (seconds on ac's clock).
+// Nothing is loaded: every sound is built from oscillators and filtered noise.
+function makeSfx(ac, out) {
+  const rnd = (a, b) => a + (b - a) * Math.random();
+  const noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+  { const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+
+  // a gain envelope: silent → peak over `a` seconds → fades over `d` seconds
+  function env(t, a, d, peak, dest = out) {
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(peak, t + a);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + a + d);
+    g.connect(dest);
+    return g;
+  }
+  // an oscillator gliding f0 → f1 over its life
+  function tone(t, type, f0, f1, a, d, peak, dest = out) {
+    const o = ac.createOscillator(), g = env(t, a, d, peak, dest);
+    o.type = type;
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(f1, t + a + d);
+    o.connect(g); o.start(t); o.stop(t + a + d + 0.05);
+    return o;
+  }
+  // a burst of filtered noise; the filter can sweep f0 → f1
+  function noise(t, type, f0, f1, q, a, d, peak, dest = out) {
+    const s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = env(t, a, d, peak, dest);
+    s.buffer = noiseBuf;
+    s.loopStart = 0; s.loop = true;
+    f.type = type; f.Q.value = q;
+    f.frequency.setValueAtTime(f0, t);
+    f.frequency.exponentialRampToValueAtTime(f1, t + a + d);
+    s.connect(f); f.connect(g);
+    s.start(t, rnd(0, 0.9)); s.stop(t + a + d + 0.05);
+  }
+  // a crackle: many tiny noise grains spread over `span` seconds
+  function grains(t, n, span, type, lo, hi, q, peak, len = [0.008, 0.03]) {
+    for (let i = 0; i < n; i++) {
+      const at = t + span * Math.pow(Math.random(), 1.3);
+      noise(at, type, rnd(lo, hi), rnd(lo, hi), q, 0.002, rnd(...len), peak * rnd(0.4, 1));
+    }
+  }
+  // a soft bell: a sine and two inharmonic partials
+  function bell(t, f, peak, d = 1.4) {
+    tone(t, 'sine', f, f, 0.004, d, peak);
+    tone(t, 'sine', f * 2.76, f * 2.76, 0.004, d * 0.45, peak * 0.28);
+    tone(t, 'sine', f * 5.4, f * 5.4, 0.004, d * 0.2, peak * 0.1);
+  }
+  // a low-passed bus, for sounds that should feel muffled and warm
+  function warm(freq) {
+    const f = ac.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = freq; f.connect(out);
+    return f;
+  }
+
+  return {
+    eat: {
+      A: (t) => tone(t, 'sine', rnd(1100, 1500), rnd(850, 1000), 0.004, 0.05, 0.07),               // soft blip
+      B: (t) => { noise(t, 'bandpass', 3400, 3000, 5, 0.001, 0.02, 0.22); tone(t, 'sine', 2300, 2100, 0.002, 0.02, 0.02); }, // tick
+      C: (t) => tone(t, 'sine', rnd(620, 700), 260, 0.003, 0.06, 0.1, warm(1800)),                 // tiny pop
+    },
+    rip: {
+      A: (t) => { noise(t, 'highpass', 2500, 2000, 0.7, 0.001, 0.03, 0.15); grains(t + 0.01, 7, 0.18, 'bandpass', 1600, 3600, 2, 0.16); },   // bark crack
+      B: (t) => { noise(t, 'bandpass', 400, 1300, 1.2, 0.02, 0.22, 0.12); grains(t, 11, 0.28, 'lowpass', 500, 1100, 1, 0.3, [0.01, 0.04]); }, // earthy scrape (mound)
+      C: (t) => { grains(t, 16, 0.2, 'highpass', 2400, 5200, 1, 0.12, [0.005, 0.02]); noise(t, 'highpass', 3000, 5000, 0.7, 0.01, 0.12, 0.05); }, // papery tear (carton)
+    },
+    sting: {
+      A: (t) => tone(t, 'sawtooth', 430, 250, 0.003, 0.09, 0.09, warm(2600)),                      // zap
+      B: (t) => {                                                                                  // buzzing nip
+        const o = tone(t, 'square', 190, 170, 0.004, 0.13, 0.05, warm(2000));
+        const lfo = ac.createOscillator(), depth = ac.createGain();
+        lfo.frequency.value = 38; depth.gain.value = 35; lfo.connect(depth); depth.connect(o.frequency);
+        lfo.start(t); lfo.stop(t + 0.2);
+      },
+      C: (t) => { tone(t, 'triangle', 950, 700, 0.002, 0.05, 0.12); tone(t + 0.06, 'triangle', 720, 520, 0.002, 0.07, 0.1); }, // double nip
+      bullet: (t) => {                                                                             // a bullet ant: much worse
+        tone(t, 'sawtooth', 340, 110, 0.004, 0.32, 0.16, warm(2200));
+        noise(t, 'bandpass', 1800, 700, 1.5, 0.002, 0.18, 0.14);
+      },
+    },
+    shelter: {
+      A: (t) => { const w = warm(1100); [220, 277.2, 329.6, 415.3].forEach((f, i) => tone(t + i * 0.09, 'sine', f, f, 0.6, 2.6, 0.045, w)); }, // warm chord
+      B: (t) => [659.3, 554.4, 440].forEach((f, i) => {                                               // a three-note lullaby
+        tone(t + i * 0.38, 'sine', f, f, 0.02, 1.3, 0.06);
+        tone(t + i * 0.38, 'sine', f * 2, f * 2, 0.02, 0.5, 0.012);
+      }),
+      C: (t) => { noise(t, 'lowpass', 1300, 280, 0.5, 0.7, 1.6, 0.09); tone(t + 0.15, 'sine', 110, 104, 0.8, 1.8, 0.05); }, // a settling sigh
+    },
+    snap: {
+      A: (t) => {                                                                                  // crack, splinters, thud
+        noise(t, 'highpass', 2200, 1500, 0.7, 0.001, 0.04, 0.3);
+        grains(t + 0.02, 10, 0.25, 'bandpass', 1200, 3200, 2, 0.18);
+        noise(t + 0.05, 'highpass', 3000, 5000, 0.5, 0.05, 0.4, 0.05);                              // leaves
+        tone(t + 0.55, 'sine', 95, 42, 0.004, 0.38, 0.3);                                          // hits the ground
+        grains(t + 0.56, 6, 0.12, 'lowpass', 300, 700, 1, 0.2);
+      },
+      B: (t) => {                                                                                  // a creak first
+        const w = ac.createBiquadFilter(); w.type = 'bandpass'; w.frequency.value = 700; w.Q.value = 6; w.connect(out);
+        tone(t, 'sawtooth', 150, 95, 0.05, 0.4, 0.09, w);
+        noise(t + 0.45, 'highpass', 2200, 1500, 0.7, 0.001, 0.04, 0.3);
+        grains(t + 0.47, 10, 0.25, 'bandpass', 1200, 3200, 2, 0.18);
+        tone(t + 1.0, 'sine', 95, 42, 0.004, 0.38, 0.3);
+        grains(t + 1.01, 6, 0.12, 'lowpass', 300, 700, 1, 0.2);
+      },
+      C: (t) => { noise(t, 'highpass', 1800, 1200, 0.7, 0.001, 0.06, 0.28); tone(t + 0.4, 'sine', 80, 40, 0.004, 0.3, 0.26); }, // short and simple
+    },
+    bees: {
+      A: (t) => [1046.5, 1318.5, 1568, 2093].forEach((f, i) => bell(t + i * 0.08, f, 0.05)),       // a rising arpeggio
+      B: (t) => { for (let i = 0; i < 6; i++) bell(t + i * 0.055, 1568 * (i % 2 ? 1.5 : 1), 0.045 * (1 - i * 0.13), 0.9); }, // shimmering chime
+      C: (t) => [784, 1046.5, 1318.5, 1568].forEach((f, i) => tone(t + i * 0.09, 'triangle', f, f, 0.003, 0.28, 0.08)),    // marimba run
+    },
+  };
+}
+
+// ---------- the test page ----------
+const SOUNDS = [
+  { key: 'eat', name: '1 · an ant or termite eaten', when: 'Every lick that catches something. Plays a lot, so it must be tiny.',
+    names: { A: 'A · soft blip', B: 'B · tick', C: 'C · tiny pop' },
+    demos: [['eating ×8 (tongue speed)', (s, t) => { for (let i = 0; i < 8; i++) s.eat[pick('eat')](t + i * 0.34); }]] },
+  { key: 'rip', name: '2 · ripping into a nest', when: 'Each claw strike that breaks into a nest.',
+    names: { A: 'A · bark crack', B: 'B · earthy scrape', C: 'C · papery tear' },
+    demos: [['all three, one per nest type', (s, t) => { s.rip.A(t); s.rip.B(t + 0.7); s.rip.C(t + 1.4); }]] },
+  { key: 'sting', name: '3 · a bite or sting', when: 'Each sting you receive. A little harsher than eating.',
+    names: { A: 'A · zap', B: 'B · buzzing nip', C: 'C · double nip' },
+    demos: [['bullet ant (a much worse sting)', (s, t) => s.sting.bullet(t)], ['eat, eat, eat, stung', (s, t) => { for (let i = 0; i < 3; i++) s.eat[pick('eat')](t + i * 0.34); s.sting[pick('sting')](t + 1.02); }]] },
+  { key: 'shelter', name: '4 · settling into a shelter', when: 'When you press Enter to sleep in a burrow, hollow or log.',
+    names: { A: 'A · warm chord', B: 'B · lullaby', C: 'C · settling sigh' } },
+  { key: 'snap', name: '5 · a branch breaking', when: 'A dead branch snaps and falls (and you drop with it).',
+    names: { A: 'A · crack & thud', B: 'B · creak, crack, thud', C: 'C · short & simple' } },
+  { key: 'bees', name: '6 · finding the stingless bees', when: 'The first time you break into a bee hive and find honey.',
+    names: { A: 'A · rising arpeggio', B: 'B · shimmering chime', C: 'C · marimba run' } },
+];
+let ac = null, master = null, sfx = null;
+function audio() {
+  if (!ac) {
+    ac = new AudioContext();
+    master = ac.createGain();
+    const comp = ac.createDynamicsCompressor();   // a safety net against sudden loud peaks
+    master.connect(comp); comp.connect(ac.destination);
+    sfx = makeSfx(ac, master);
+  }
+  master.gain.value = +document.getElementById('vol').value;
+  if (ac.state === 'suspended') ac.resume();
+  return ac.currentTime + 0.03;
+}
+const picks = {};
+try { Object.assign(picks, JSON.parse(localStorage.getItem('tupara-sfx-picks') || '{}')); } catch (e) {}
+const pick = (k) => picks[k] || 'A';
+function savePicks() {
+  try { localStorage.setItem('tupara-sfx-picks', JSON.stringify(picks)); } catch (e) {}
+  document.getElementById('picks').innerHTML = 'Your picks: ' +
+    SOUNDS.map((s) => `<b>${s.key[0].toUpperCase() + s.key.slice(1)} ${picks[s.key] || '–'}</b>`).join(' · ') +
+    ' <br>(★ marks your favourite in each row; unpicked rows default to A.)';
+  for (const el of document.querySelectorAll('.variant')) el.classList.toggle('picked', picks[el.dataset.key] === el.dataset.v);
+}
+const cards = document.getElementById('cards');
+for (const S of SOUNDS) {
+  const c = document.createElement('section');
+  c.className = 'card';
+  c.innerHTML = `<h2>${S.name}</h2><p>${S.when}</p><div class="row"></div>`;
+  const row = c.querySelector('.row');
+  for (const v of ['A', 'B', 'C']) {
+    const g = document.createElement('span');
+    g.className = 'variant'; g.dataset.key = S.key; g.dataset.v = v;
+    const play = document.createElement('button'), star = document.createElement('button');
+    play.textContent = '▶ ' + S.names[v];
+    play.onclick = () => { const t = audio(); sfx[S.key][v](t); };
+    star.className = 'star'; star.textContent = '★'; star.title = 'pick this one';
+    star.onclick = () => { picks[S.key] = v; savePicks(); };
+    g.append(play, star);
+    row.append(g);
+  }
+  for (const [label, fn] of S.demos || []) {
+    const b = document.createElement('button');
+    b.className = 'demo'; b.textContent = '▶ ' + label;
+    b.onclick = () => { const t = audio(); fn(sfx, t); };
+    row.append(b);
+  }
+  cards.append(c);
+}
+document.getElementById('vol').oninput = () => { if (master) master.gain.value = +document.getElementById('vol').value; };
+document.getElementById('all').onclick = () => {
+  const t = audio(), gaps = { eat: 0.6, rip: 0.9, sting: 0.9, shelter: 3.2, snap: 1.8, bees: 1.6 };
+  let at = t;
+  for (const S of SOUNDS) { sfx[S.key][pick(S.key)](at); at += gaps[S.key]; }
+};
+savePicks();
+</script>
+</body>
+</html>

@@ -54,7 +54,7 @@ The name "Snoutrageous" belongs to a different game. Don't use it here.
 ## Controls
 ← → walk (on a trunk: step onto a branch) · ↑ ↓ climb at a trunk · **X** rip into a nest ·
 hold **Space** to eat ants (tongue) · Shift hurry · **Enter** sleep in a shelter at dawn / continue ·
-Z close-up camera · C scent tint · R rim light (ants only) · H hide help.
+Z close-up camera · C scent tint · R rim light (ants only) · M sound on/off · H hide help.
 
 ## main.js layout (top to bottom)
 utils → light/palettes → shape helpers → ground → **nests** (tables `NEST_TYPES`, `SPECIES`,
@@ -66,10 +66,20 @@ forest** (`withSeed(83)`, walkway bridges) → background → foreground (`fgClu
 foreground extension, far bank, ripples, water) → the tamandua (body shapes, input, `updateTamandua`, claw strike, hitting/carving/
 snapping nests, tongue, `updateAnts`) → **nights/energy/game flow** (`game`, `eatAnt`, `sting`, nose
 memory, `dealSpecies`, `wakeCreatures`, `startNight`, `newGame`, `onEnter`, `updateGame`) →
-**scenes** (`INTRO_STEPS`, `RESCUE_STEPS`, `FREE_STEPS` + the other tamandua, the scene runner,
+**sound** (`makeSfx`, `sfx(name)`) → **scenes** (`INTRO_STEPS`, `RESCUE_STEPS`, `FREE_STEPS` + the other tamandua, the scene runner,
 rescuer + cage drawing) → termite swarms → **scent** → camera/render/HUD → `frame`.
 
 ## Systems
+**Sound.** Subtle effects are made in code with Web Audio (no files), as `makeSfx(ac, out)` in
+`main.js`. `sfx(name)` plays one: `eat` (soft blip, every ant), `rip` (earthy scrape, every claw
+strike into a nest), `sting` (double nip) and `bullet` (a much worse one), `shelter` (a
+three-note lullaby on Enter to sleep), `snap` (the branch cracking), `thud` (when the tamandua
+hits the ground after falling with a snapped branch, or when the branch lands if it wasn't on
+it), and `bees` (a marimba run, the first time a hive gives honey each night, via `n.rang`). The
+audio starts on the first key or click. M mutes, and that's remembered in localStorage.
+`tools/sounds.html` is the audition page, with three variants of each and the user's picks
+(eat A, rip B, sting C, shelter B, snap A, bees C). Try new sounds there first.
+
 **Title screen.** Shown once per page load, over the dusk forest with the intro waiting behind it.
 It tells the story: the player is **Tupāra**, rescued from a forest fire as a baby and raised at the
 rescue center (`STORY`). There's a "how to play" page (`HOW_TO`, `HOW_KEYS`), which explains the
