@@ -137,7 +137,11 @@ the "three nights on your own" card.
 sting (per-species overrides). Below 25 you're weak: you can't hurry (normal speed otherwise).
 Trees are meant to pay: climbing is quick (`CLIMB_SPEED` 40), tree nests hold the most, and
 carpenters and termites are dealt mostly to tree nests, fire ants mostly to the ground. Gains: per ant by species (see `SPECIES`), larvae double, honey pot 3.
-Sleeping gives `SLEEP_BONUS` +20. The nightly target (`NIGHT_TARGET` 150) is hidden. The HUD shows the
+Sleeping gives `SLEEP_BONUS` +5 (it was +20, which wiped out almost any poor night: an 8-year-old
+won on ~60 safe ants a night without ever learning a smell).
+**Nest odds** (`HOMES`, and `HOMES_LATER` from night 2) are tuned so learning the smells matters:
+a nest can hurt you (fire, azteca) ~42% of the time on night 1, and ~51% on nights 2–3 once
+acrobats move in and the ground gets more fire ants. Loose bark is always safe. The nightly target (`NIGHT_TARGET` 150) is hidden. The HUD shows the
 plain count, and the dawn card says "well fed" or "still hungry".
 
 **Nests** (`NEST_TYPES`: crust, bite, burst, stock, brood):

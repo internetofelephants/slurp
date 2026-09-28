@@ -177,20 +177,24 @@ const SPECIES = {
 const HONEY_ENERGY = 3;   // each honey pot in a bee hive
 // which species tend to live where
 const HOMES = {
-  litter: { fire: 0.7, termite: 0.2, carpenter: 0.1 },
-  log:    { woodtermite: 0.35, fire: 0.25, termite: 0.2, carpenter: 0.2 },
-  bark:   { woodtermite: 0.6, carpenter: 0.3, termite: 0.1 },
-  deadbranch: { woodtermite: 0.5, carpenter: 0.4, azteca: 0.1 },
+  litter: { fire: 0.8, termite: 0.15, carpenter: 0.05 },
+  log:    { fire: 0.4, woodtermite: 0.3, termite: 0.15, carpenter: 0.15 },
+  bark:   { woodtermite: 0.6, carpenter: 0.3, termite: 0.1 },   // the one reliably safe find
+  deadbranch: { woodtermite: 0.45, carpenter: 0.35, azteca: 0.2 },
   antmound: { leafcutter: 1 },
   beehive:  { bee: 1 },
-  mound:  { termite: 0.75, fire: 0.25 },
-  carton: { termite: 0.55, azteca: 0.45 },
-  trunk:  { carpenter: 0.5, azteca: 0.3, termite: 0.2 },
+  mound:  { termite: 0.6, fire: 0.4 },
+  carton: { termite: 0.5, azteca: 0.5 },
+  trunk:  { carpenter: 0.45, azteca: 0.35, termite: 0.2 },
 };
-// from night 2 acrobat ants move into the tree nests too
+// from night 2 the forest gets meaner: more fire ants on the ground, and acrobat ants move into the
+// tree nests (nest types not listed keep their night-1 odds)
 const HOMES_LATER = {
-  carton: { termite: 0.4, azteca: 0.3, acrobat: 0.3 },
-  trunk:  { carpenter: 0.4, azteca: 0.25, acrobat: 0.2, termite: 0.15 },
+  litter: { fire: 0.85, termite: 0.1, carpenter: 0.05 },
+  log:    { fire: 0.45, woodtermite: 0.3, termite: 0.1, carpenter: 0.15 },
+  mound:  { termite: 0.5, fire: 0.5 },
+  carton: { termite: 0.3, azteca: 0.35, acrobat: 0.35 },
+  trunk:  { carpenter: 0.35, azteca: 0.3, acrobat: 0.2, termite: 0.15 },
 };
 // Azteca soldiers: once a nest is breached they take ALARM_DELAY s to rally, then over ALARM_RISE s
 // every lick risks a sting and anyone lingering nearby gets stung, so the trick is to eat fast and go.
@@ -1551,7 +1555,7 @@ const DRAIN_REST = 0.34, DRAIN_MOVE = 0.12, DRAIN_HURRY = 0.3;  // energy per se
 const DRAIN_REST_TREE = 0.25;   // up a tree it's safe and can relax: resting costs less
 const CLIMB_SPEED = 40;
 const STRIKE_COST = 0.35;
-const SLEEP_BONUS = 20;   // a night survived and a day's sleep
+const SLEEP_BONUS = 5;    // a night survived and a day's sleep (small: a poor night isn't wiped clean)
 // clock: dawn light starts at DAWN (you can bed down from then on); at 1 the sun is up and a
 // tamandua still out in the open is exposed and loses energy fast until it finds shelter
 const DAWN = 0.8, DAY_END = 1.25, EXPOSED_DRAIN = 1.0;
