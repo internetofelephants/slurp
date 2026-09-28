@@ -120,13 +120,13 @@ const NEST_TYPES = {
   //       crust: strikes that only chip before the first breach · bite: hole size
   //       burst: ants let out per breaching strike · stock: ants inside
   //       brood: larvae in the brood chambers, found by digging deep (worth double)
-  carton:     { crust: 0, bite: 11, burst: [4, 6], stock: 24, brood: 6 },   // papery nest hanging under a branch
-  trunk:      { crust: 1, bite: 10, burst: [4, 6], stock: 28, brood: 6 },   // carton plastered onto a trunk
+  carton:     { crust: 0, bite: 11, burst: [4, 6], stock: 40, brood: 8 },   // papery nest hanging under a branch
+  trunk:      { crust: 1, bite: 10, burst: [4, 6], stock: 40, brood: 8 },   // carton plastered onto a trunk
   mound:      { crust: 3, bite: 8,  burst: [6, 9], stock: 60, brood: 10 },  // sun-baked clay: hard but rich
   log:        { crust: 1, bite: 9,  burst: [3, 5], stock: 30, brood: 6 },   // soft, rotten fallen wood
   litter:     { crust: 0, bite: 13, burst: [2, 4], stock: 12, brood: 0 },   // leaf pile: easy, a small snack
-  bark:       { crust: 0, bite: 10, burst: [3, 5], stock: 26, brood: 0 },   // loose bark down a trunk: peels off in plates
-  deadbranch: { crust: 1, bite: 8,  burst: [3, 5], stock: 28, brood: 4 },   // bare dead branch: snaps if you dig too much
+  bark:       { crust: 0, bite: 10, burst: [3, 5], stock: 32, brood: 0 },   // loose bark down a trunk: peels off in plates
+  deadbranch: { crust: 1, bite: 8,  burst: [3, 5], stock: 32, brood: 6 },   // bare dead branch: snaps if you dig too much
   antmound:   { crust: 1, bite: 12, burst: [6, 9], stock: 50, brood: 0 },   // leafcutters' low sprawling soil mound
   beehive:    { crust: 2, bite: 9,  burst: [5, 7], stock: 30, brood: 8 },   // stingless bees in a hollow trunk: brood = honey pots
 };
@@ -156,20 +156,20 @@ const SPECIES = {
 const HONEY_ENERGY = 3;   // each honey pot in a bee hive
 // which species tend to live where
 const HOMES = {
-  litter: { fire: 0.55, termite: 0.25, carpenter: 0.2 },
-  log:    { carpenter: 0.35, woodtermite: 0.3, termite: 0.25, fire: 0.1 },
+  litter: { fire: 0.7, termite: 0.2, carpenter: 0.1 },
+  log:    { woodtermite: 0.35, fire: 0.25, termite: 0.2, carpenter: 0.2 },
   bark:   { woodtermite: 0.6, carpenter: 0.3, termite: 0.1 },
   deadbranch: { woodtermite: 0.5, carpenter: 0.4, azteca: 0.1 },
   antmound: { leafcutter: 1 },
   beehive:  { bee: 1 },
   mound:  { termite: 0.75, fire: 0.25 },
-  carton: { azteca: 0.55, termite: 0.45 },
-  trunk:  { azteca: 0.4, carpenter: 0.4, termite: 0.2 },
+  carton: { termite: 0.55, azteca: 0.45 },
+  trunk:  { carpenter: 0.5, azteca: 0.3, termite: 0.2 },
 };
 // from night 2 acrobat ants move into the tree nests too
 const HOMES_LATER = {
-  carton: { azteca: 0.35, acrobat: 0.35, termite: 0.3 },
-  trunk:  { azteca: 0.3, carpenter: 0.3, acrobat: 0.25, termite: 0.15 },
+  carton: { termite: 0.4, azteca: 0.3, acrobat: 0.3 },
+  trunk:  { carpenter: 0.4, azteca: 0.25, acrobat: 0.2, termite: 0.15 },
 };
 // Azteca soldiers: once a nest is breached they take ALARM_DELAY s to rally, then over ALARM_RISE s
 // every lick risks a sting and anyone lingering nearby gets stung, so the trick is to eat fast and go.
@@ -725,9 +725,9 @@ function updateTamandua(dt, time) {
   const sniffing = held('Space', 'KeyE') && !clawKey;
   // ripping and licking both need the tamandua planted
   const still = sniffing || clawKey || a.claw.t >= 0;
-  // running low on energy: slower, and too tired to hurry
+  // running low on energy: too tired to hurry
   const weak = game.energy < WEAK;
-  const hurry = (held('ShiftLeft', 'ShiftRight') && !weak ? 1.8 : 1) * (weak ? 0.75 : 1) * (a.buzz ? 0.7 : 1);
+  const hurry = (held('ShiftLeft', 'ShiftRight') && !weak ? 1.8 : 1) * (a.buzz ? 0.7 : 1);
 
   if (a.mode === 'ground') {
     a.vel = approach(a.vel, still ? 0 : h * 48 * hurry, dt);
@@ -746,7 +746,7 @@ function updateTamandua(dt, time) {
     // tamanduas climb down head first: face whichever way we're climbing
     if (v && !still) a.facing = v > 0 ? -a.side : a.side;
     const headDown = a.facing === a.side;
-    a.vel = approach(a.vel, still ? 0 : v * 30 * hurry, dt);
+    a.vel = approach(a.vel, still ? 0 : v * CLIMB_SPEED * hurry, dt);
     a.y -= a.vel * dt;
     const maxY = t.gy - (headDown ? 70 : 58), minY = t.top + 80;
     if (a.y >= maxY) {
@@ -1414,6 +1414,8 @@ function drawTamandua(time, rim) {
 const NIGHT_LEN = 240, NIGHTS = 3, NIGHT_TARGET = 150;
 const E_MAX = 100, E_START = 80, WEAK = 25;
 const DRAIN_REST = 0.34, DRAIN_MOVE = 0.12, DRAIN_HURRY = 0.3;  // energy per second
+const DRAIN_REST_TREE = 0.25;   // up a tree it's safe and can relax: resting costs less
+const CLIMB_SPEED = 40;
 const STRIKE_COST = 0.35;
 const SLEEP_BONUS = 20;   // a night survived and a day's sleep
 // clock: dawn light starts at DAWN (you can bed down from then on); at 1 the sun is up and a
@@ -1501,13 +1503,6 @@ function updateStings(dt) {
   if (inRaid && armyIn <= 0) { sting('body', 'army'); armyIn = rand(0.7, 1.2); }
   if (!inRaid) armyIn = Math.max(armyIn, 0.4);
 
-  // treading on a bullet ant
-  bulletIn -= dt;
-  const underfoot = (t) => { const d = (t.wx - a.rx) * a.facing; return d > -38 && d < 22; };  // hind paws … fore paws
-  if (a.mode === 'ground' && bulletIn <= 0 && ants.some((t) => t.kind === 'bullet' && t.state === 'live' && underfoot(t))) {
-    sting('body', 'bullet'); bulletIn = 3;
-  }
-
   // stingless bees don't sting, but a cloud of them in your fur slows everything down
   let bees = 0;
   for (const t of ants) if (t.fly && t.state === 'live' && Math.hypot(t.wx - a.rx, t.wy - (a.ry - 18)) < 45) bees++;
@@ -1515,7 +1510,7 @@ function updateStings(dt) {
   if (a.buzz && game.time - buzzAt > 8) flash = { text: 'bees in your fur!', t: 1.6 };
   if (a.buzz) buzzAt = game.time;
 }
-let armyIn = 0, bulletIn = 0, buzzAt = -99;
+let armyIn = 0, buzzAt = -99;
 function dealSpecies() {
   for (const h of [...nests, ...trails]) {
     const odds = (game.night >= 2 && HOMES_LATER[h.type]) || HOMES[h.type];
@@ -1636,7 +1631,8 @@ function updateGame(dt) {
   }
   const moving = Math.abs(a.vel) > 3;
   const hurrying = moving && held('ShiftLeft', 'ShiftRight') && game.energy >= WEAK;
-  spend((DRAIN_REST + (moving ? DRAIN_MOVE : 0) + (hurrying ? DRAIN_HURRY : 0)) * dt);
+  const rest = a.mode === 'ground' ? DRAIN_REST : DRAIN_REST_TREE;
+  spend((rest + (moving ? DRAIN_MOVE : 0) + (hurrying ? DRAIN_HURRY : 0)) * dt);
   updateStings(dt);
   if (game.energy < WEAK && !game.warned) { game.warned = true; flash = { text: 'getting weak — find ants', t: 2.5 }; }
   if (game.energy >= WEAK + 5) game.warned = false;

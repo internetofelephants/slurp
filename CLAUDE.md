@@ -91,9 +91,11 @@ during this scene.
 (0 dusk, 1 sunrise). From `DAWN` (0.8, 3:12) you may sleep. After sunrise you're exposed and lose
 `EXPOSED_DRAIN`/s until sheltered. Three nights (`NIGHTS`).
 
-**Energy.** Starts at 80 (`E_START`), max 100, carries over between nights. Drains: 0.34/s always,
-+0.12/s moving, +0.3/s hurrying, 0.35 per claw strike, 3 per sting (per-species overrides). Below 25
-you're weak: slower, no hurry. Gains: per ant by species (see `SPECIES`), larvae double, honey pot 3.
+**Energy.** Starts at 80 (`E_START`), max 100, carries over between nights. Drains: 0.34/s always
+(0.25/s up a tree, `DRAIN_REST_TREE`), +0.12/s moving, +0.3/s hurrying, 0.35 per claw strike, 3 per
+sting (per-species overrides). Below 25 you're weak: you can't hurry (normal speed otherwise).
+Trees are meant to pay: climbing is quick (`CLIMB_SPEED` 40), tree nests hold the most, and
+carpenters and termites are dealt mostly to tree nests, fire ants mostly to the ground. Gains: per ant by species (see `SPECIES`), larvae double, honey pot 3.
 Sleeping gives `SLEEP_BONUS` +20. The nightly target (`NIGHT_TARGET` 150) is hidden. The HUD shows the
 plain count, and the dawn card says "well fed" or "still hungry".
 
@@ -112,7 +114,8 @@ into stock). Brood chambers can open from the 3rd breach (`BROOD_CHANCE` 0.4). A
 gets you stung), fire, woodtermite (night 1). Acrobat (nips), leafcutter (trail workers safe, nest
 soldiers bite), army (a raid column marching along the floor that stings anyone standing in it),
 alate (winged termites from a 20 s mound swarm; one swarm on night 2, two on night 3) (night 2).
-Bee (in your fur: slows you, no stings) and bullet (15 energy per sting, underfoot or licked)
+Bee (in your fur: slows you, no stings) and bullet (15 energy per sting, only when licked:
+walking over them is safe, so knowing the smell lets you avoid them)
 (night 3). Newcomers are dormant, meaning not drawn, smelled or edible, before their night
 (`fromNight`, `wakeCreatures`). Trail ants don't respawn within a night.
 
