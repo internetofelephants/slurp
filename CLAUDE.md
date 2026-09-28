@@ -44,7 +44,7 @@ The name "Snoutrageous" belongs to a different game. Don't use it here.
   but **generation order matters**: adding or reordering anything shifts everything after it.
   To add world content without disturbing the existing layout, generate it inside
   `withSeed(n, fn)`, which draws from a separate stream and then restores the main one. The far
-  forest (seed 42) and the river (seed 13) do this. The original generation loops still use
+  forest (seed 83) and the river (seed 13) do this. The original generation loops still use
   `OLD_W` (5200), not `WORLD_W`.
   Runtime randomness (species dealing, stings) uses `Math.random`.
 - `console.assert`s fire if a shelter or leafcutter nest fails to find room on the crowded floor.
@@ -58,10 +58,11 @@ Z close-up camera · C scent tint · R rim light (ants only) · H hide help.
 
 ## main.js layout (top to bottom)
 utils → light/palettes → shape helpers → ground → **nests** (tables `NEST_TYPES`, `SPECIES`,
-`HOMES`, `HOMES_LATER`, `addNest`) → termite mounds → trees (branches, dead branches, hanging cartons,
-trunk cartons, loose bark, ant trails) → floor placement + **shelters** (placed first so they always
+`HOMES`, `HOMES_LATER`, `addNest`) → termite mounds → trees (`makeTree`: branches and dead branches;
+`leafyBranch`: a living branch and maybe a hanging carton; `crownAndTrunk`: crown, trunk carton,
+loose bark, ant trail) → floor placement + **shelters** (placed first so they always
 fit) → leafcutter nests → logs + litter → bee hives, bullet ants, army raid, alate home → **the far
-forest** (`withSeed(42)`) → background → foreground (`fgClump`) → **the river** (`withSeed(13)`:
+forest** (`withSeed(83)`, walkway bridges) → background → foreground (`fgClump`) → **the river** (`withSeed(13)`:
 foreground extension, far bank, ripples, water) → the tamandua (body shapes, input, `updateTamandua`, claw strike, hitting/carving/
 snapping nests, tongue, `updateAnts`) → **nights/energy/game flow** (`game`, `eatAnt`, `sting`, nose
 memory, `dealSpecies`, `wakeCreatures`, `startNight`, `newGame`, `onEnter`, `updateGame`) →
@@ -154,8 +155,15 @@ nights 1 and 2 are committed to the **nose memory** when you sleep (`commitMemor
 the player's own experience. It resets on a new game.
 
 **World.** 6500 wide (`WORLD_W`). The original forest runs to 5200 (`OLD_W`). Beyond it is the
-**far forest** (x5200–6500): denser trees (4, about 300 apart), 10 more nests (7 of them in trees), a
-bee hive and a bullet-ant tree. It's where the canopy walkway is planned (chunk 2). At the east end
+**far forest** (x5200–6500): denser trees (4, about 300 apart), 9 more nests (7 of them in trees), a
+bee hive and a bullet-ant tree, and a **canopy walkway**. Between each pair of neighbouring trees, a
+branch from each rises to meet the other's, and the tips overlap by `BRIDGE_OVERLAP` (the linked
+branches have `b.link`). Both of a tree's walkway branches leave its trunk at the same height
+(~220–245 up). So holding ← or → walks you along the whole chain: off one branch tip onto the
+neighbour's, and straight across each trunk to the branch on its other side (only while not
+pressing ↑ ↓, so you can still get on and off the trunk there). The whole walkway takes ~20 s.
+The rule lives in `updateTamandua`'s branch mode, and it only applies to branches that line up
+across a trunk (within 30), which never happens in the original forest. At the east end
 is a **river** (`RIVER_X` ~6490 to `RIVER_FAR`): `groundY` dips into a deep bed, pale water fills
 it, and the far bank has reeds and trees. The tamandua stops at x6440 (no walking on the spot) with a
 one-time "too wide and fast to cross" message (`game.riverSeen`).
@@ -183,9 +191,8 @@ you wake there next dusk.
 - Step 5 is done: the intro, rescue and free scenes.
 - Balance: much more food on nights 2–3 now. The 150 target may need raising after playtests.
   Shelters are far apart.
-- Chunk 2 (next): a canopy walkway in the far forest. Branches of neighbouring trees meet so you
-  can walk tree to tree without coming down: a linked-branch hand-off at the tips, plus crossing a
-  trunk from one side's branch to the other's. It will change the far forest's generation, which
-  is safe because it has its own seed.
+- The walkway is only in the far forest. It could be extended (for example, a bridge from the
+  original forest's last tree), but that tree belongs to the main seed, so a link would have to be
+  added without adding draws to it.
 - Winged termites could reuse a stronger termite wisp instead of their own (one less smell to learn).
 - Remove the testing keys before release.

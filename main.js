@@ -295,7 +295,9 @@ for (const mx of [980, 2420, 3960]) {
 
 // ---------- climbable trees ----------
 const trees = [];
-function makeTree(x) {
+// bridges (the far forest's canopy walkway): extra branches [{ y, dir, a, len }] reaching across to
+// a neighbouring tree's; the regular branches keep clear of them
+function makeTree(x, bridges = []) {
   const gy = groundY(x);
   const hw = rand(11, 16);
   const top = gy - rand(390, 540);
@@ -316,7 +318,7 @@ function makeTree(x) {
   const ys = [];
   for (let tries = 0; ys.length < randInt(2, 3) && tries < 60; tries++) {
     const y = rand(top + 90, gy - 150);
-    if (ys.every((o) => Math.abs(o - y) > 80)) ys.push(y);
+    if (ys.every((o) => Math.abs(o - y) > 80) && bridges.every((q) => Math.abs(q.y - y) > 70)) ys.push(y);
   }
   ys.sort((a, b) => b - a);
   let dir = rnd() < 0.5 ? -1 : 1;
@@ -343,32 +345,49 @@ function makeTree(x) {
       dir = rnd() < 0.8 ? -dir : dir;
       continue;
     }
-    limb(p, x, y, e.x, e.y, t0, t0 * 0.4);
-    // a twig and leaf clusters
-    const tw = branchPoint(b, len * 0.62);
-    const ta = a + rand(0.5, 0.8), tl = rand(35, 55);
-    const tx = tw.x + dir * Math.cos(ta) * tl, ty = tw.y - Math.sin(ta) * tl;
-    limb(p, tw.x, tw.y, tx, ty, 4, 1.5);
-    blob(p, tx, ty - 6, rand(20, 30), rand(13, 18));
-    blob(p, e.x + dir * 10, e.y - 12, rand(30, 42), rand(17, 24));
-    // hanging carton nest on some branches
-    if (rnd() < 0.4) {
-      const np = branchPoint(b, len * rand(0.4, 0.55));
-      const rx = rand(14, 19), ry = rand(20, 27);
-      const q = new Path2D();
-      q.moveTo(np.x + rx, np.y + ry * 0.7);
-      q.ellipse(np.x, np.y + ry * 0.7, rx, ry, 0, 0, TAU, true);
-      for (let k = 0; k < 5; k++) circ(q, np.x + rand(-rx, rx) * 0.8, np.y + ry * 0.7 + rand(-ry, ry) * 0.8, rand(5, 8));
-      const by = np.y;
-      const home = addNest('carton', q, np.x, { x0: np.x - rx - 10, x1: np.x + rx + 10, y0: np.y - 10, y1: np.y + ry * 1.7 + 10 },
-        { keep: (x, y) => y > by + 3 });  // leave the branch itself alone
-      b.nest = true;
-      for (let k = 0; k < 7; k++) {
-        ants.push({ kind: 'nest', home, cx: np.x, cy: np.y + ry * 0.7, rx: rx + 4, ry: ry + 4, ang: rand(0, TAU), v: rand(0.3, 0.7) * (rnd() < 0.5 ? -1 : 1), state: 'live' });
-      }
-    }
+    leafyBranch(t, b);
     dir = rnd() < 0.8 ? -dir : dir;
   }
+  for (const q of bridges) {
+    const b = { tree: t, y: q.y, dir: q.dir, a: q.a, len: q.len, t0: rand(10, 13), c: Math.cos(q.a), sn: Math.sin(q.a), link: null };
+    t.branches.push(b);
+    q.b = b;
+    leafyBranch(t, b);
+  }
+  crownAndTrunk(t);
+  return t;
+}
+// a living branch: the limb, a twig with leaves, a leafy tip, and maybe a carton nest hanging off it
+function leafyBranch(t, b) {
+  const p = t.path, x = t.x, { y, dir, a, len, t0 } = b, e = branchPoint(b, len);
+  limb(p, x, y, e.x, e.y, t0, t0 * 0.4);
+  // a twig and leaf clusters
+  const tw = branchPoint(b, len * 0.62);
+  const ta = a + rand(0.5, 0.8), tl = rand(35, 55);
+  const tx = tw.x + dir * Math.cos(ta) * tl, ty = tw.y - Math.sin(ta) * tl;
+  limb(p, tw.x, tw.y, tx, ty, 4, 1.5);
+  blob(p, tx, ty - 6, rand(20, 30), rand(13, 18));
+  blob(p, e.x + dir * 10, e.y - 12, rand(30, 42), rand(17, 24));
+  // hanging carton nest on some branches
+  if (rnd() < 0.4) {
+    const np = branchPoint(b, len * rand(0.4, 0.55));
+    const rx = rand(14, 19), ry = rand(20, 27);
+    const q = new Path2D();
+    q.moveTo(np.x + rx, np.y + ry * 0.7);
+    q.ellipse(np.x, np.y + ry * 0.7, rx, ry, 0, 0, TAU, true);
+    for (let k = 0; k < 5; k++) circ(q, np.x + rand(-rx, rx) * 0.8, np.y + ry * 0.7 + rand(-ry, ry) * 0.8, rand(5, 8));
+    const by = np.y;
+    const home = addNest('carton', q, np.x, { x0: np.x - rx - 10, x1: np.x + rx + 10, y0: np.y - 10, y1: np.y + ry * 1.7 + 10 },
+      { keep: (x, y) => y > by + 3 });  // leave the branch itself alone
+    b.nest = true;
+    for (let k = 0; k < 7; k++) {
+      ants.push({ kind: 'nest', home, cx: np.x, cy: np.y + ry * 0.7, rx: rx + 4, ry: ry + 4, ang: rand(0, TAU), v: rand(0.3, 0.7) * (rnd() < 0.5 ? -1 : 1), state: 'live' });
+    }
+  }
+}
+// the crown, and the trunk's own nests and trails
+function crownAndTrunk(t) {
+  const p = t.path, { x, gy, hw, top } = t;
   // crown
   blob(p, x + rand(-20, 20), top - 20, rand(115, 150), rand(55, 75));
   blob(p, x + rand(-80, 80), top - rand(40, 70), rand(60, 80), rand(35, 45));
@@ -421,7 +440,6 @@ function makeTree(x) {
     if (!home) { home = { type: 'trunk', species: null }; trails.push(home); }
     for (let i = 0; i < 9; i++) ants.push({ kind: 'trunk', home, tree: t, side, u: rnd(), v: rand(0.018, 0.03) * (rnd() < 0.5 ? -1 : 1), state: 'live' });
   }
-  return t;
 }
 function branchPoint(b, s) {
   return { x: b.tree.x + b.dir * b.c * s, y: b.y - b.sn * s };
@@ -588,13 +606,31 @@ const ALATE_HOME = { type: 'alate', species: 'alate' };
 }
 
 // ---------- the far forest ----------
+const BRIDGE_OVERLAP = 6;   // walkway branch tips reach this far past the middle of the gap
 // The quarter east of OLD_W, up to the river, was added later and comes from its own seed. It's
 // thicker forest: trees closer together, most of its food up in them, and the fourth shelter, a
 // hollow high in a tree. About a quarter more of everything: nests, trails, bullet ants, a hive.
-withSeed(42, () => {   // seed picked for a good mix: 4 trees, 10 nests, the hive
-  const first = trees.length;
-  for (let x = OLD_W + rand(80, 160); x < WORLD_W - 260; x += rand(260, 360)) trees.push(makeTree(x));
-  const far = trees.slice(first);
+withSeed(83, () => {   // seed picked for a good mix: 4 trees, 3 walkway bridges, 9 nests, the hive
+  const xs = [];
+  for (let x = OLD_W + rand(80, 160); x < WORLD_W - 260; x += rand(260, 330)) xs.push(x);
+  // The canopy walkway: between each pair of neighbours a branch from each tree rises to meet the
+  // other's, tips overlapping above the gap. Both of a tree's walkway branches leave its trunk at
+  // the same height, so you can walk straight across it from one to the other.
+  const hy = xs.map((x) => groundY(x) - rand(215, 245));
+  const bridges = xs.map(() => []);
+  for (let i = 0; i + 1 < xs.length; i++) {
+    const half = (xs[i + 1] - xs[i]) / 2, top = Math.min(hy[i], hy[i + 1]) - rand(16, 26);
+    for (const [j, dir] of [[i, 1], [i + 1, -1]]) {
+      const rise = hy[j] - top;
+      bridges[j].push({ y: hy[j], dir, a: Math.atan2(rise, half), len: Math.hypot(half, rise) + BRIDGE_OVERLAP });
+    }
+  }
+  const far = xs.map((x, i) => makeTree(x, bridges[i]));
+  trees.push(...far);
+  for (let i = 0; i + 1 < xs.length; i++) {
+    const p = bridges[i].find((q) => q.dir === 1).b, q = bridges[i + 1].find((q) => q.dir === -1).b;
+    p.link = q; q.link = p;
+  }
   const home = far[Math.floor(far.length / 2)];
   makeTreeHollow(home, 270, 330, 'a hollow high in a tree');
   floorEnd = WORLD_W - 150;
@@ -840,11 +876,21 @@ function updateTamandua(dt, time) {
       if (b) { setMode('branch'); a.branch = b; a.s = t.hw + 6; a.facing = h; }
     }
   } else if (a.mode === 'branch') {
-    const b = a.branch, sMin = b.tree.hw + 6, sMax = b.len - 22;
+    const b = a.branch, sMin = b.tree.hw + 6, sMax = b.link ? b.len - BRIDGE_OVERLAP - 4 : b.len - 22;
     a.vel = approach(a.vel, still ? 0 : h * b.dir * 36 * hurry, dt);
     a.s += a.vel * dt;
-    if (a.s <= sMin) { a.s = sMin; a.vel = Math.max(a.vel, 0); }
-    if (a.s >= sMax) { a.s = sMax; a.vel = Math.min(a.vel, 0); }
+    // the canopy walkway: out past the tip onto the neighbour's branch, or straight across the
+    // trunk onto the walkway branch on its other side (unless you're pressing up or down to climb)
+    const across = a.s <= sMin && a.vel < 0 && !v &&
+      b.tree.branches.find((o) => o !== b && o.dir === -b.dir && !o.broken && Math.abs(o.y - b.y) < 30);
+    if (b.link && a.s >= sMax && a.vel > 0) {
+      a.branch = b.link; a.s = b.link.len - BRIDGE_OVERLAP - 4.5; a.vel = -a.vel;
+    } else if (across) {
+      a.branch = across; a.s = sMin + 0.5; a.vel = -a.vel;
+    } else {
+      if (a.s <= sMin) { a.s = sMin; a.vel = Math.max(a.vel, 0); }
+      if (a.s >= sMax) { a.s = sMax; a.vel = Math.min(a.vel, 0); }
+    }
     if (h && !still) a.facing = h;
     if (v && !still && a.s < sMin + 14) {
       setMode('trunk');
