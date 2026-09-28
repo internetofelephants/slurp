@@ -5,7 +5,8 @@ const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 
 const VIEW_H = 600;      // world units visible vertically
-const WORLD_W = 5200;    // playable width
+const OLD_W = 5200;      // the original forest, still generated exactly as it always was
+const WORLD_W = 6500;    // playable width: the far quarter beyond OLD_W ends at the river
 const HORIZON = 0.62;    // screen fraction where world y = camera y sits
 const S = 0.72;          // tamandua scale
 const TAU = Math.PI * 2;
@@ -19,7 +20,17 @@ function mulberry32(a) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-const rnd = mulberry32(11);
+// World generation draws from one seeded stream, so the layout is the same every load. The far
+// forest (and anything else added later) runs on a stream of its own via withSeed, so it can't shift
+// the rest.
+let rndStream = mulberry32(11);
+const rnd = () => rndStream();
+function withSeed(seed, fn) {
+  const keep = rndStream;
+  rndStream = mulberry32(seed);
+  fn();
+  rndStream = keep;
+}
 const rand = (a = 0, b = 1) => a + (b - a) * rnd();
 const randInt = (a, b) => Math.floor(rand(a, b + 1));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -98,15 +109,25 @@ function blob(p, cx, cy, rx, ry) {
 }
 
 // ---------- ground ----------
-const groundY = (x) => 10 * Math.sin(x * 0.0037) + 6 * Math.sin(x * 0.0112 + 1.3) + 3 * Math.sin(x * 0.027 + 0.4);
+// At the east end the ground drops into a riverbed: a river too wide to cross ends the world.
+const groundBase = (x) => 10 * Math.sin(x * 0.0037) + 6 * Math.sin(x * 0.0112 + 1.3) + 3 * Math.sin(x * 0.027 + 0.4);
+const RIVER_X = WORLD_W - 10, RIVER_FAR = RIVER_X + 470;   // near bank … far bank
+const RIVER_Y = groundBase(RIVER_X) + 20;                    // the water line
+const groundY = (x) => {
+  const b = groundBase(x);
+  if (x <= RIVER_X || x >= RIVER_FAR) return b;
+  let s = Math.min((x - RIVER_X) / 90, (RIVER_FAR - x) / 100, 1);
+  s = s * s * (3 - 2 * s);
+  return lerp(b, RIVER_Y + 110, s);   // the banks slope down to a deep bed
+};
 const groundSlope = (x) => (groundY(x + 1) - groundY(x - 1)) / 2;
 
 const groundPath = new Path2D();
 groundPath.moveTo(-2000, 3000);
-groundPath.lineTo(WORLD_W + 2000, 3000);
-for (let x = WORLD_W + 2000; x >= -2000; x -= 16) groundPath.lineTo(x, groundY(x));
+groundPath.lineTo(OLD_W + 2000, 3000);
+for (let x = OLD_W + 2000; x >= -2000; x -= 16) groundPath.lineTo(x, groundY(x));
 groundPath.closePath();
-for (let x = -2000; x < WORLD_W + 2000; x += rand(5, 15)) {
+for (let x = -2000; x < OLD_W + 2000; x += rand(5, 15)) {
   const gy = groundY(x);
   for (let b = randInt(1, 3); b > 0; b--) limb(groundPath, x, gy + 2, x + rand(-6, 6), gy - rand(3, 13), 2.2, 0.3);
 }
@@ -410,15 +431,16 @@ function trunkFaceX(t, y, side) {
   const f = clamp((t.gy - y) / (t.gy - t.top), 0, 1);
   return t.x + side * t.hw * (1 - 0.15 * f);
 }
-for (let x = 560; x < WORLD_W - 300; x += rand(380, 620)) {
+for (let x = 560; x < OLD_W - 300; x += rand(380, 620)) {
   if (mounds.some((m) => Math.abs(m.x - x) < 170)) x += 200;
   trees.push(makeTree(x));
 }
 
 // things on the forest floor keep clear of trees, each other, and the shelters; placeFloor tries
 // x, then steps along until it finds room
+let floorEnd = OLD_W - 100;   // how far east floor things may go (the far forest extends it)
 const floorClear = (x, r) =>
-  x - r > 100 && x + r < WORLD_W - 100 &&
+  x - r > 100 && x + r < floorEnd &&
   trees.every((t) => Math.abs(t.x - x) > r + 50) &&
   nests.every((n) => !n.ground || n.box.x1 + 20 < x - r || n.box.x0 - 20 > x + r) &&
   shelters.every((s) => s.kind === 'tree' || Math.abs(s.x - x) > r + s.r + 20);
@@ -428,23 +450,24 @@ function placeFloor(x, r, make) {
 }
 
 // ---------- shelters: somewhere to sleep through the day ----------
-// Only three in the whole forest — a hollow in a tree, a burrow under an old stump, a hollow log —
-// always in the same places, so part of each night is remembering where they are.
+// Only four in the whole forest — a hollow in a tree, a burrow under an old stump, a hollow log,
+// and (in the far forest) a hollow high in a tree — always in the same places, so part of each
+// night is remembering where they are.
 const shelters = [];
-{
-  // a knot hole high on a trunk: reached by climbing
-  const t = trees.reduce((b, t) => (Math.abs(t.x - 1250) < Math.abs(b.x - 1250) ? t : b));
-  let y = t.gy - 180;
+// a knot hole on a trunk, somewhere between `lo` and `hi` above the ground: reached by climbing
+function makeTreeHollow(t, lo, hi, name) {
+  let y = t.gy - (lo + hi) / 2;
   for (let k = 0; k < 60; k++) {
-    const c = rand(t.gy - 240, t.gy - 120);
+    const c = rand(t.gy - hi, t.gy - lo);
     const clearOfNest = [t.nest, t.bark].every((n) => !n || c < n.box.y0 - 30 || c > n.box.y1 + 30);
     if (clearOfNest && t.branches.every((b) => Math.abs(b.y - c) > 40)) { y = c; break; }
   }
   const rim = new Path2D(), hole = new Path2D();
   rim.moveTo(t.x + 10, y); rim.ellipse(t.x, y, 10, 15, 0, 0, TAU, true);
   hole.moveTo(t.x + 7, y + 1.5); hole.ellipse(t.x, y + 1.5, 7, 11.5, 0, 0, TAU, true);
-  shelters.push({ kind: 'tree', name: 'a hollow in a tree', tree: t, x: t.x, y, rim, hole, found: false });
+  shelters.push({ kind: 'tree', name, tree: t, x: t.x, y, rim, hole, found: false });
 }
+makeTreeHollow(trees.reduce((b, t) => (Math.abs(t.x - 1250) < Math.abs(b.x - 1250) ? t : b)), 120, 240, 'a hollow in a tree');
 function makeBurrow(x) {
   const gy = groundY(x), p = new Path2D(), q = new Path2D(), rim = new Path2D(), hole = new Path2D(), ex = x - 10;
   // a low earth bank under an old broken stump, roots arching over the way in
@@ -508,9 +531,9 @@ function makeLitter(x) {
   }
   addNest('litter', null, x, { x0: x - W / 2 - 8, x1: x + W / 2 + 8, y0: groundY(x) - H - 8, y1: groundY(x) + 4 }, { ground: true, leaves });
 }
-for (let x = 1300; x < WORLD_W - 200; x += rand(900, 1300)) placeFloor(x, 90, makeLog);
+for (let x = 1300; x < OLD_W - 200; x += rand(900, 1300)) placeFloor(x, 90, makeLog);
 placeFloor(440, 50, makeLitter);  // one right by the start
-for (let x = 800; x < WORLD_W - 200; x += rand(450, 750)) placeFloor(x, 50, makeLitter);
+for (let x = 800; x < OLD_W - 200; x += rand(450, 750)) placeFloor(x, 50, makeLitter);
 
 // leafcutter nests (from night 2): a low sprawling soil mound pocked with entrance craters, and a
 // trail of workers — those heading home carry a piece of leaf, the one ant you can spot by sight
@@ -564,6 +587,26 @@ const ALATE_HOME = { type: 'alate', species: 'alate' };
   }
 }
 
+// ---------- the far forest ----------
+// The quarter east of OLD_W, up to the river, was added later and comes from its own seed. It's
+// thicker forest: trees closer together, most of its food up in them, and the fourth shelter, a
+// hollow high in a tree. About a quarter more of everything: nests, trails, bullet ants, a hive.
+withSeed(42, () => {   // seed picked for a good mix: 4 trees, 10 nests, the hive
+  const first = trees.length;
+  for (let x = OLD_W + rand(80, 160); x < WORLD_W - 260; x += rand(260, 360)) trees.push(makeTree(x));
+  const far = trees.slice(first);
+  const home = far[Math.floor(far.length / 2)];
+  makeTreeHollow(home, 270, 330, 'a hollow high in a tree');
+  floorEnd = WORLD_W - 150;
+  placeFloor(OLD_W + rand(150, 350), 90, makeLog);
+  for (const x of [OLD_W + 500, WORLD_W - 450]) placeFloor(x + rand(-80, 80), 50, makeLitter);
+  const others = far.filter((t) => t !== home);
+  makeHive(others[0]);
+  const b = others[others.length - 1];
+  for (let k = 0; k < 3; k++) ants.push({ kind: 'bullet', home: BULLET_HOME, cx: b.x, x: b.x + rand(-40, 40), v: rand(4, 7) * (rnd() < 0.5 ? -1 : 1), state: 'live' });
+});
+console.assert(shelters.length === 4, 'the far forest found no room for its shelter');
+
 // the shelter the tamandua is at right now, if any
 function shelterHere() {
   return shelters.find((s) => s.kind === 'tree'
@@ -606,7 +649,7 @@ function ridge(p, x0, x1, fn) {
 }
 const layers = [];
 function makeLayer(par, f, base, fn, fill) {
-  const p = new Path2D(), x0 = -1800, x1 = WORLD_W * par + 1800;
+  const p = new Path2D(), x0 = -1800, x1 = OLD_W * par + 1800;
   ridge(p, x0, x1, fn);
   if (fill) fill(p, x0, x1, fn);
   layers.push({ par, f, base, path: p });
@@ -628,7 +671,7 @@ makeLayer(0.58, 0.44, -25, (x) => -25 - 6 * Math.sin(x * 0.006 + 2), (p, x0, x1,
 // ---------- foreground (in front of the tamandua) ----------
 const FG_PAR = 1.35, FG_BASE = 90;
 const fgPath = new Path2D();
-for (let x = -1800; x < WORLD_W * FG_PAR + 1800; x += rand(200, 460)) {
+function fgClump(x) {
   if (rnd() < 0.6) {
     for (let i = randInt(10, 16); i > 0; i--) {
       limb(fgPath, x + rand(-12, 12), FG_BASE + 30, x + rand(-70, 70), FG_BASE - rand(90, 200), 6, 0.4);
@@ -643,6 +686,34 @@ for (let x = -1800; x < WORLD_W * FG_PAR + 1800; x += rand(200, 460)) {
     }
   }
 }
+let fgEnd = -1800;
+for (; fgEnd < OLD_W * FG_PAR + 1800; fgEnd += rand(200, 460)) fgClump(fgEnd);
+
+// ---------- the river ----------
+// Pale water between the banks, a few ripples that glint and fade, and the far bank with its reeds
+// and trees, unreachable. (Its own seed, like the far forest.)
+const farBank = new Path2D(), ripples = [], water = new Path2D();
+// the water fills the channel down to the bed, so the banks show as slopes under it
+water.moveTo(RIVER_X, RIVER_Y);
+water.lineTo(RIVER_FAR, RIVER_Y);
+for (let x = RIVER_FAR; x >= RIVER_X; x -= 6) water.lineTo(x, Math.max(RIVER_Y, groundY(x)));
+water.closePath();
+withSeed(13, () => {
+  for (; fgEnd < WORLD_W * FG_PAR + 1800; fgEnd += rand(200, 460)) fgClump(fgEnd);
+  const x0 = RIVER_FAR - 70, x1 = RIVER_FAR + 2600;
+  farBank.moveTo(x0, 3000);
+  farBank.lineTo(x1, 3000);
+  for (let x = x1; x >= x0; x -= 16) farBank.lineTo(x, groundY(x));
+  farBank.closePath();
+  for (let x = RIVER_FAR - 50; x < x1; x += rand(6, 14)) {
+    const gy = groundY(x), reed = x < RIVER_FAR + 90;
+    for (let b = randInt(1, 3); b > 0; b--) limb(farBank, x, gy + 2, x + rand(-6, 6), gy - (reed ? rand(12, 34) : rand(3, 13)), 2.2, 0.3);
+  }
+  for (let x = RIVER_FAR + rand(60, 140); x < x1; x += rand(260, 420)) bgTree(farBank, x, groundY(x), rand(300, 420), 0.85);
+  for (let i = 0; i < 26; i++) {
+    ripples.push({ x: rand(RIVER_X + 50, RIVER_FAR - 60), d: rand(4, 60) ** 1.2 / 2, len: rand(10, 34), f: rand(0.6, 1.4), ph: rand(0, TAU) });
+  }
+});
 
 // ---------- motes / fireflies ----------
 const motes = Array.from({ length: 55 }, () => ({
@@ -707,6 +778,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyZ') closeUp = !closeUp;
   if (e.code === 'KeyL') showSpecies = !showSpecies;
   if (e.code === 'KeyN' && game.phase === 'night' && game.night < NIGHTS) startNight(game.night + 1);  // testing aid
+  if (e.code === 'KeyT' && game.phase === 'night' && !fade.action) jumpToNextShelter();                 // testing aid
   if (e.code === 'KeyC') { tintOn = !tintOn; flash = { text: tintOn ? 'scent tint on' : 'scent tint off', t: 1.2 }; }
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
@@ -735,7 +807,9 @@ function updateTamandua(dt, time) {
 
   if (a.mode === 'ground') {
     a.vel = approach(a.vel, still ? 0 : h * 48 * hurry, dt);
-    a.x = clamp(a.x + a.vel * dt, 60, game.phase === 'free' ? Infinity : WORLD_W - 60);
+    a.x = clamp(a.x + a.vel * dt, 60, WORLD_W - 60);
+    // at the river (or the far west edge) it stops rather than walking on the spot
+    if ((a.x >= WORLD_W - 60 && a.vel > 0) || (a.x <= 60 && a.vel < 0)) a.vel = 0;
     if (h && !still) a.facing = h;
     if (v > 0 && !still) {
       const t = trees.find((t) => Math.abs(a.x - t.x) < t.hw + 30);
@@ -1565,7 +1639,7 @@ function newGame() {
   a.claw.t = -1; a.tongue.t = -1; a.tongue.target = null; a.flinch = 0;
   a.slump = a.hidden = a.greet = false;
   cam.x = START_X + 90;
-  Object.assign(game, { energy: E_START, total: 0 });
+  Object.assign(game, { energy: E_START, total: 0, riverSeen: false });
   for (const k in journal) delete journal[k];     // a fresh start: the nose memory is earned again
   for (const k in tonight) delete tonight[k];
   memOpen = false;
@@ -1583,6 +1657,15 @@ function wakeAt(s) {
   }
   a.claw.t = -1; a.tongue.t = -1; a.tongue.target = null; a.flinch = 0;
   cam.x = a.rx + 90;
+}
+// testing aid (T): hop to the next shelter east (wrapping round), placed as if waking there.
+// Instant, so it costs no energy and leaves the clock alone.
+function jumpToNextShelter() {
+  const byX = [...shelters].sort((p, q) => p.x - q.x);
+  const s = byX.find((s) => s.x > a.rx + 60) || byX[0];
+  wakeAt(s);
+  s.found = true;
+  flash = { text: `(testing) ${s.name}`, t: 2 };
 }
 function onEnter() {
   if (fade.action) return;
@@ -1627,6 +1710,10 @@ function updateGame(dt) {
   }
   if (game.swarms && game.swarms.length && game.clock >= game.swarms[0]) { game.swarms.shift(); startSwarm(); }
   updateSwarm(dt);
+  if (!game.riverSeen && a.mode === 'ground' && a.x > WORLD_W - 90) {
+    game.riverSeen = true;
+    flash = { text: 'the river — too wide and fast to cross', t: 3 };
+  }
   for (const s of shelters) {
     if (!s.found && Math.hypot(s.x - a.rx, s.y - a.ry) < 110) {
       s.found = true;
@@ -1799,37 +1886,78 @@ const RESCUE_STEPS = [
 ];
 
 // Free: the evening after the last day. It climbs down or comes out of its shelter and heads into
-// the forest, where another tamandua (a grown one) comes the other way. They meet nose to nose,
-// then walk off together into the dusk while the picture fades.
-const mate = { on: false, x: 0, vel: 0, go: 0, facing: -1, greet: false,
+// the forest (away from the river), where another tamandua (a grown one) comes the other way. They
+// meet nose to nose, then the grown one leads to the nearest tree and they climb it together, one
+// up each side of the trunk, while the picture fades.
+const mate = { on: false, x: 0, y: 0, vel: 0, go: 0, facing: -1, greet: false, climb: null,
   rx: 0, ry: 0, rt: 0, rf: -1, gait: 0, diag: DIAG_LEVEL, head: 0, moveAmt: 0, sniff: 0, mode: 'ground',
   curl: 0, claw: { t: -1, leg: 1 }, flinch: 0, size: 1.15 };
 const FREE_STEPS = [
   climbDown,
-  { until: () => mate.x - a.x < 114, enter() {   // head off; the other one comes into view
+  { until: () => (mate.x - a.x) * scene.dir < 114, enter() {   // head off; the other one comes into view
     landed();
-    puppet.ArrowRight = true;
-    const x = cam.x + cw / sc / 2 + 60;
-    Object.assign(mate, { on: true, x, rx: x, ry: groundY(x), vel: 0, go: 1, facing: -1, rf: -1, greet: false });
+    scene.dir = a.x > WORLD_W - 900 ? -1 : 1;
+    puppet[scene.dir > 0 ? 'ArrowRight' : 'ArrowLeft'] = true;
+    const x = cam.x + scene.dir * (cw / sc / 2 + 60);
+    Object.assign(mate, { on: true, mode: 'ground', climb: null, x, rx: x, ry: groundY(x), rt: 0, vel: 0, go: 1,
+      facing: -scene.dir, rf: -scene.dir, greet: false, diag: DIAG_LEVEL });
   } },
   { d: 3.2, enter() {   // nose to nose
-    puppet.ArrowRight = false; mate.go = 0;
+    puppet.ArrowRight = puppet.ArrowLeft = false; mate.go = 0;
     a.greet = mate.greet = true;
     scene.camX = (a.x + mate.x) / 2;
   } },
-  { d: 1.2, enter() { a.greet = mate.greet = false; mate.facing = 1; mate.go = 1; } },   // it turns and leads
-  { d: 7, enter() { puppet.ArrowRight = true; }, run(u) { fade.k = clamp((u * 7 - 3.5) / 3, 0, 1); } },
+  { until: () => fade.k >= 1 || scene.st > 25, enter() {   // up the nearest tree together
+    a.greet = mate.greet = false;
+    const mid = (a.x + mate.x) / 2;
+    const t = trees.reduce((b, t) => (Math.abs(t.x - mid) < Math.abs(b.x - mid) ? t : b));
+    scene.tree = t; scene.side = a.x < t.x ? -1 : 1; scene.up = 0;
+    mate.climb = { tree: t, side: -scene.side, fx: t.x - scene.side * (t.hw + 34) };
+  }, run(u, dt) {
+    const t = scene.tree;
+    for (const k in puppet) puppet[k] = false;
+    if (scene.st > 0.8) {   // it follows a moment later
+      if (a.mode === 'ground') {
+        const d = t.x + scene.side * (t.hw + 20) - a.x;
+        if (Math.abs(d) > 6) puppet[d > 0 ? 'ArrowRight' : 'ArrowLeft'] = true;
+        else puppet.ArrowUp = true;
+      } else puppet.ArrowUp = true;
+    }
+    if (a.mode === 'trunk' && mate.mode === 'trunk') scene.up += dt;
+    fade.k = clamp((scene.up - 1.2) / 2.5, 0, 1);
+  } },
 ];
-// the other tamandua walks on its own, much like `updateTamandua` on the ground
+// the other tamandua moves on its own, much like `updateTamandua`: walking, and climbing a trunk
 function updateMate(dt, time) {
   const m = mate;
   if (!m.on) return;
-  m.vel = approach(m.vel, m.go * 44 * m.facing, dt);
-  m.x += m.vel * dt;
-  const speed = Math.abs(m.vel);
+  let px, py, pt;
+  if (m.mode === 'ground') {
+    let want = m.go * m.facing;
+    if (m.climb) {
+      const d = m.climb.fx - m.x;
+      want = Math.abs(d) > 6 ? Math.sign(d) : 0;
+      if (want) m.facing = want;
+      else { m.mode = 'trunk'; m.y = m.climb.tree.gy - 58; m.vel = 0; m.facing = -m.climb.side; }
+    }
+    m.vel = approach(m.vel, want * 44, dt);
+    m.x += m.vel * dt;
+  }
+  if (m.mode === 'ground') {
+    px = m.x; py = groundY(m.x); pt = Math.atan(groundSlope(m.x));
+  } else {   // head up the trunk
+    const t = m.climb.tree;
+    m.vel = approach(m.vel, CLIMB_SPEED, dt);
+    m.y -= m.vel * dt;
+    if (m.y <= t.top + 80) { m.y = t.top + 80; m.vel = 0; }
+    px = trunkFaceX(t, m.y, m.climb.side); py = m.y; pt = m.climb.side * Math.PI / 2;
+  }
+  const speed = Math.abs(m.vel), k = 1 - Math.exp(-dt * 8);
   m.gait += (dt * speed * DUTY) / (2 * STRIDE_A * S * m.size);
-  m.moveAmt = lerp(m.moveAmt, clamp(speed / 28, 0, 1), 1 - Math.exp(-dt * 8));
-  Object.assign(m, { rx: m.x, ry: groundY(m.x), rt: Math.atan(groundSlope(m.x)) });
+  m.moveAmt = lerp(m.moveAmt, clamp(speed / 28, 0, 1), k);
+  m.diag = lerp(m.diag, m.mode === 'trunk' ? DIAG_CLIMB : DIAG_LEVEL, 1 - Math.exp(-dt * 3));
+  m.rx += (px - m.rx) * k; m.ry += (py - m.ry) * k;
+  m.rt += angDiff(m.rt, pt) * k;
   m.rf += clamp(m.facing - m.rf, -dt * 5, dt * 5);
   const target = m.greet ? 0.08 + 0.06 * Math.sin(time * 9) : m.moveAmt > 0.2 ? 0.14 + 0.03 * Math.sin(m.gait * TAU * 2)
     : -0.05 + 0.05 * Math.sin(time * 1.3);
@@ -2314,6 +2442,24 @@ function haze(par, base, alpha) {
   ctx.fillRect(0, y - 240 * sc, cw, ch);
 }
 
+function drawRiver(time, viewHalf) {
+  if (cam.x + viewHalf < RIVER_X) return;
+  const g = ctx.createLinearGradient(0, RIVER_Y, 0, RIVER_Y + 110);
+  g.addColorStop(0, css(mix(pal.bottom, [255, 255, 255], 0.2)));   // the sky, reflected
+  g.addColorStop(1, css(mix(pal.bottom, pal.ink, 0.7)));
+  ctx.fillStyle = g;
+  ctx.fill(water);
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 1.4;
+  for (const r of ripples) {
+    const al = 0.35 * Math.max(0, Math.sin(time * r.f + r.ph));
+    if (al < 0.02) continue;
+    ctx.strokeStyle = css(mix(pal.bottom, [255, 255, 255], 0.6), al);
+    ctx.beginPath(); ctx.moveTo(r.x, RIVER_Y + 2 + r.d); ctx.lineTo(r.x + r.len, RIVER_Y + 2 + r.d); ctx.stroke();
+  }
+  ctx.fillStyle = css(mix(pal.bottom, pal.ink, 0.97));
+  ctx.fill(farBank);
+}
 function drawShelters(viewHalf) {
   for (const s of shelters) {
     if (Math.abs(s.x - cam.x) > viewHalf) continue;
@@ -2430,6 +2576,7 @@ function render(time, dt) {
   drawNests(time, viewHalf);
   ctx.fillStyle = css(mix(pal.bottom, pal.ink, 0.97));
   ctx.fill(groundPath);
+  drawRiver(time, viewHalf);
   drawShelters(viewHalf);
 
   // ants
@@ -2585,7 +2732,7 @@ function drawHUD(time, dt, label) {
       'X  rip into a nest     hold Space  eat ants',
       'Shift  hurry     Enter  sleep in a shelter, once it gets light',
       'Z  close-up     C  scent tint',
-      `R  rim: ${rimOn ? 'on' : 'off'}     H  hide     testing:  ]  skip 30 s   N  next night   L  label species`,
+      `R  rim: ${rimOn ? 'on' : 'off'}     H  hide     testing:  ]  skip 30 s   N  next night   T  next shelter   L  label species`,
     ];
     lines.forEach((l, i) => label(l, 20, 82 + i * 18));
   }

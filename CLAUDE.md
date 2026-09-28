@@ -42,9 +42,14 @@ The name "Snoutrageous" belongs to a different game. Don't use it here.
   Welts and `flash` only age inside `render`.
 - World generation uses the **seeded** `rnd` (`mulberry32(11)`), so the layout is the same every load,
   but **generation order matters**: adding or reordering anything shifts everything after it.
+  To add world content without disturbing the existing layout, generate it inside
+  `withSeed(n, fn)`, which draws from a separate stream and then restores the main one. The far
+  forest (seed 42) and the river (seed 13) do this. The original generation loops still use
+  `OLD_W` (5200), not `WORLD_W`.
   Runtime randomness (species dealing, stings) uses `Math.random`.
 - `console.assert`s fire if a shelter or leafcutter nest fails to find room on the crowded floor.
-- **Testing keys to remove before release:** `]` skip 30 s, `N` next night, `L` show species labels.
+- **Testing keys to remove before release:** `]` skip 30 s, `N` next night, `T` jump to the next
+  shelter east (wraps; no energy or time cost, `jumpToNextShelter`), `L` show species labels.
 
 ## Controls
 ← → walk (on a trunk: step onto a branch) · ↑ ↓ climb at a trunk · **X** rip into a nest ·
@@ -55,8 +60,9 @@ Z close-up camera · C scent tint · R rim light (ants only) · H hide help.
 utils → light/palettes → shape helpers → ground → **nests** (tables `NEST_TYPES`, `SPECIES`,
 `HOMES`, `HOMES_LATER`, `addNest`) → termite mounds → trees (branches, dead branches, hanging cartons,
 trunk cartons, loose bark, ant trails) → floor placement + **shelters** (placed first so they always
-fit) → leafcutter nests → logs + litter → bee hives, bullet ants, army raid, alate home → background
-→ foreground → the tamandua (body shapes, input, `updateTamandua`, claw strike, hitting/carving/
+fit) → leafcutter nests → logs + litter → bee hives, bullet ants, army raid, alate home → **the far
+forest** (`withSeed(42)`) → background → foreground (`fgClump`) → **the river** (`withSeed(13)`:
+foreground extension, far bank, ripples, water) → the tamandua (body shapes, input, `updateTamandua`, claw strike, hitting/carving/
 snapping nests, tongue, `updateAnts`) → **nights/energy/game flow** (`game`, `eatAnt`, `sting`, nose
 memory, `dealSpecies`, `wakeCreatures`, `startNight`, `newGame`, `onEnter`, `updateGame`) →
 **scenes** (`INTRO_STEPS`, `RESCUE_STEPS`, `FREE_STEPS` + the other tamandua, the scene runner,
@@ -94,11 +100,12 @@ was chosen over the cage because the rescuer can't reach past a cage to the tama
 kneeling.
 
 *Free (win).* Enter on the night-3 dawn card → `startFree()`, phase `'free'`. The next dusk, it
-wakes at its shelter, climbs down if it slept in the tree hollow, and walks right. A grown
-tamandua (`mate`, drawn 1.15× by lending its pose to `drawTamandua` in `drawMate`) comes the other
-way. They meet nose to nose (`greet`), then the mate turns and leads, the young one follows, and
-the picture fades to dark before the "three nights on your own" card. The world-end clamp is lifted
-during this scene.
+wakes at its shelter, climbs down if it slept in a tree hollow, and walks away from the river
+(`scene.dir`: left if it's within 900 of it, otherwise right). A grown tamandua (`mate`, drawn
+1.15× by lending its pose to `drawTamandua` in `drawMate`) comes the other way. They meet nose to
+nose (`greet`). Then the mate leads to the nearest tree and they climb it together, one up each side
+of the trunk (`mate.climb`; `updateMate` walks and climbs). The picture fades as they go up, before
+the "three nights on your own" card.
 
 **Night clock.** `NIGHT_LEN` 240 s. The sky blends dusk → night → dawn → day along `game.clock`
 (0 dusk, 1 sunrise). From `DAWN` (0.8, 3:12) you may sleep. After sunrise you're exposed and lose
@@ -146,9 +153,17 @@ nights 1 and 2 are committed to the **nose memory** when you sleep (`commitMemor
 `JOURNAL_NIGHTS`). It's opened by clicking the button under the stats panel, and verdicts come from
 the player's own experience. It resets on a new game.
 
-**Shelters** (one of each, fixed): a tree hollow ~x1176 (180 up the trunk), a burrow under a stump
-~x2690, and a hollow log ~x4570 (enter at its open right end). The tamandua starts at x320, and the
-world runs to ~5140. Passing one announces it. Sleeping hides the tamandua, shows the dawn card, and
+**World.** 6500 wide (`WORLD_W`). The original forest runs to 5200 (`OLD_W`). Beyond it is the
+**far forest** (x5200–6500): denser trees (4, about 300 apart), 10 more nests (7 of them in trees), a
+bee hive and a bullet-ant tree. It's where the canopy walkway is planned (chunk 2). At the east end
+is a **river** (`RIVER_X` ~6490 to `RIVER_FAR`): `groundY` dips into a deep bed, pale water fills
+it, and the far bank has reeds and trees. The tamandua stops at x6440 (no walking on the spot) with a
+one-time "too wide and fast to cross" message (`game.riverSeen`).
+
+**Shelters** (four, fixed): a tree hollow ~x1176 (180 up the trunk), a burrow under a stump
+~x2690, a hollow log ~x4570 (enter at its open right end), and a hollow high in a tree ~x5924
+(~280 up, in the far forest). They're made by `makeTreeHollow`, `makeBurrow` and `makeHollowLog`.
+The tamandua starts at x320. Passing one announces it. Sleeping hides the tamandua, shows the dawn card, and
 you wake there next dusk.
 
 ## Open items and ideas
@@ -167,6 +182,10 @@ you wake there next dusk.
 - Rearing up on hind legs and tail (tripod stance) to lick winged termites overhead: proposed, "not yet".
 - Step 5 is done: the intro, rescue and free scenes.
 - Balance: much more food on nights 2–3 now. The 150 target may need raising after playtests.
-  Shelters are far apart (the hollow log is near the far end).
+  Shelters are far apart.
+- Chunk 2 (next): a canopy walkway in the far forest. Branches of neighbouring trees meet so you
+  can walk tree to tree without coming down: a linked-branch hand-off at the tips, plus crossing a
+  trunk from one side's branch to the other's. It will change the far forest's generation, which
+  is safe because it has its own seed.
 - Winged termites could reuse a stronger termite wisp instead of their own (one less smell to learn).
 - Remove the testing keys before release.
