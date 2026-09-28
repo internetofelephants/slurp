@@ -1,6 +1,6 @@
-# Slurp
+# Tupāra
 
-A browser game: a young rescued tamandua (lesser anteater) is released into the forest and must
+A browser game (formerly "Slurp"; the repo, folder and dev-server name still say slurp): a young rescued tamandua (lesser anteater) is released into the forest and must
 survive **three nights** on its own. Each night it forages from dusk to dawn, learning which ants
 and termites are good to eat by their **smell**, and at dawn it must reach a shelter to sleep
 through the day. Run out of energy and the rescue team takes it back to rehab; survive three
@@ -22,6 +22,10 @@ The name "Snoutrageous" belongs to a different game. Don't use it here.
 - Every shape helper winds the same way so shared `Path2D`s never punch holes. Anything drawn with
   `limb()` over another shape needs its **own path**, or the overlap cancels out and shows as a pale
   gap (this bit the burrow's roots once).
+- **No rim light** on the tamandua, the other tamandua, the rescuer or the cage: they're plain
+  silhouettes (the user prefers it). The rim (`R`) is for the ants only.
+- The head is a separate shape pivoting at `HEAD_PIVOT`. Its back edge is rounded off low so a
+  hanging head (slumped, clawing) doesn't poke a notch above the back line.
 
 ## Running and testing
 - `index.html` + `main.js`, no build step. Dev server: `.claude/launch.json` → `slurp-dev`
@@ -33,7 +37,8 @@ The name "Snoutrageous" belongs to a different game. Don't use it here.
   call `updateGame, stepPalette, updateAnts, updateTamandua, updateNests, updateScent` with
   `dt = 1/60` and advance `last` by 1000/60 each step, setting `keys.ArrowRight = true` etc. for input.
   Call `render(time, dt)` for a picture. `startNight(n)` jumps nights.
-  A load (and every new game) opens with the intro; `skipIntro()` jumps straight to night 1.
+  A load opens on the title screen (phase `'title'`), then the intro, and every new game opens with the
+  intro. `skipIntro()` jumps straight to night 1 from either.
   Welts and `flash` only age inside `render`.
 - World generation uses the **seeded** `rnd` (`mulberry32(11)`), so the layout is the same every load,
   but **generation order matters**: adding or reordering anything shifts everything after it.
@@ -44,7 +49,7 @@ The name "Snoutrageous" belongs to a different game. Don't use it here.
 ## Controls
 ← → walk (on a trunk: step onto a branch) · ↑ ↓ climb at a trunk · **X** rip into a nest ·
 hold **Space** to eat ants (tongue) · Shift hurry · **Enter** sleep in a shelter at dawn / continue ·
-Z close-up camera · C scent tint · R rim light · H hide help.
+Z close-up camera · C scent tint · R rim light (ants only) · H hide help.
 
 ## main.js layout (top to bottom)
 utils → light/palettes → shape helpers → ground → **nests** (tables `NEST_TYPES`, `SPECIES`,
@@ -58,6 +63,13 @@ memory, `dealSpecies`, `wakeCreatures`, `startNight`, `newGame`, `onEnter`, `upd
 rescuer + cage drawing) → termite swarms → **scent** → camera/render/HUD → `frame`.
 
 ## Systems
+**Title screen.** Shown once per page load, over the dusk forest with the intro waiting behind it.
+It tells the story: the player is **Tupāra**, rescued from a forest fire as a baby and raised at the
+rescue center (`STORY`). There's a "how to play" page (`HOW_TO`, `HOW_KEYS`), which explains the
+rules and keys but never which smells are good. Play or Enter fades the text away (`title.leaving`) and the intro starts, with no fade to black.
+`?` opens the how-to page.
+Buttons are drawn on the canvas (`title.btns`, hit-tested in the click handler).
+
 **Scenes.** Both are lists of steps (timed `d`, or `until()`) played by `playScene`/`updateScene`
 and shared helpers (`walkIn`, `walkOff`). Captions show and the HUD is hidden during them, and Enter
 skips them (`skipIntro` / `endScene`). The rescuer is one person with a cap and a headlamp.
@@ -70,7 +82,7 @@ rescuer keeps going on their own: they stand, pick up the cage and walk off left
 `INTRO_STEPS`. While `cage.holds`, `holdTamandua()` pins the tamandua inside, and `a.curl` curls
 its tail.
 The rescuer is built from `limb`/`circ` with a separate path per part. The near arm is drawn
-after the cage, with no rim.
+after the cage.
 
 *Rescue (fail).* Energy hits 0 → `startRescue(cause)`, phase `'rescued'`. If it's up a tree, the
 tamandua climbs down on its own (puppet keys). Then it slumps (`a.slump`, head hanging), and the

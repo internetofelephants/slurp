@@ -1,4 +1,4 @@
-// Slurp — a young tamandua's first three nights in the wild.
+// Tupāra — a young tamandua's first three nights in the wild.
 // Everything is drawn procedurally on one canvas: dark shapes against a light sky.
 
 const canvas = document.getElementById('c');
@@ -669,8 +669,10 @@ const HEAD_PIVOT = [26, -40];
 const HEAD = new Path2D();   // drawn around HEAD_PIVOT
 // The crown sits on the continuation of the back line, so at rest back, neck and
 // forehead read as one unbroken curve; a dip only appears when the head lifts.
-HEAD.moveTo(-14, -7);
-HEAD.quadraticCurveTo(0, -6.5, 16, -3.5);   // crown, continuing the slope of the back
+// The back of the head is rounded off low, so when the head hangs down it stays tucked under
+// the back instead of its corner swinging up above it.
+HEAD.moveTo(-14, -2);
+HEAD.quadraticCurveTo(-4, -7, 16, -3.5);    // crown, continuing the slope of the back
 HEAD.quadraticCurveTo(30, -1, 40, 2.5);     // forehead easing into the snout
 HEAD.lineTo(61, 15);                        // snout top
 HEAD.quadraticCurveTo(64, 17.5, 60, 19);    // small blunt tip
@@ -697,6 +699,8 @@ addEventListener('keydown', (e) => {
   keys[e.code] = true;
   if (e.repeat) return;
   if (e.code === 'Enter') onEnter();
+  if (game.phase === 'title' && e.key === '?') title.how = !title.how;
+  if (game.phase === 'title' && e.code === 'Escape') title.how = false;
   if (e.code === 'BracketRight' && game.phase === 'night') { game.clock = Math.min(1, game.clock + 30 / NIGHT_LEN); flash = { text: '+30 s', t: 0.8 }; }  // testing aid
   if (e.code === 'KeyR') { rimOn = !rimOn; flash = { text: rimOn ? 'rim light on' : 'rim light off', t: 1.2 }; }
   if (e.code === 'KeyH') helpOn = !helpOn;
@@ -1287,18 +1291,15 @@ function tailShape(base, time) {
   return path;
 }
 
-function drawTamandua(time, rim) {
-  const RW = 2.4;
+function drawTamandua(time) {
   ctx.save();
   ctx.translate(a.rx, a.ry);
   ctx.rotate(a.rt);
   ctx.scale(a.rf * S * (a.size || 1), S * (a.size || 1));
   const rear = clawRear(a.claw.t);
   if (rear) { ctx.translate(REAR_PIVOT, 0); ctx.rotate(-rear); ctx.translate(-REAR_PIVOT, 0); }
-  const color = rim ? css(mix(pal.bottom, [255, 255, 255], 0.35), 0.9) : css(pal.ink);
-  ctx.fillStyle = ctx.strokeStyle = color;
-  ctx.lineJoin = ctx.lineCap = 'round';
-  const shape = (p) => { ctx.fill(p); if (rim) { ctx.lineWidth = RW * 2; ctx.stroke(p); } };
+  ctx.fillStyle = css(pal.ink);
+  const shape = (p) => ctx.fill(p);
 
   const pose = bodyPose();
   const breathe = 1 + 0.012 * Math.sin(time * 2.2);
@@ -1423,7 +1424,7 @@ const SLEEP_BONUS = 20;   // a night survived and a day's sleep
 const DAWN = 0.8, DAY_END = 1.25, EXPOSED_DRAIN = 1.0;
 const START_X = 320;
 
-// phase: 'intro' (the release) · 'night' (playing) · 'dawn' (night survived, summary up) · 'rescued' (out of energy) · 'free' (won)
+// phase: 'title' (story, how to play) · 'intro' (the release) · 'night' (playing) · 'dawn' (night survived, summary up) · 'rescued' (out of energy) · 'free' (won)
 const game = {
   phase: 'night', night: 1, clock: 0, time: 0, energy: E_START, tonight: 0, total: 0, stings: 0,
   warned: false, dawnWarned: false, exposedWarned: false, shelter: null, cause: '',
@@ -1585,7 +1586,9 @@ function wakeAt(s) {
 }
 function onEnter() {
   if (fade.action) return;
-  if (game.phase === 'intro') {
+  if (game.phase === 'title') {
+    playFromTitle();
+  } else if (game.phase === 'intro') {
     fade.action = skipIntro;
   } else if (game.phase === 'night') {
     const s = shelterHere();
@@ -1613,6 +1616,7 @@ function updateGame(dt) {
     fade.k = Math.max(0, fade.k - dt / 0.8);
   }
   game.time += dt;
+  if (game.phase === 'title') { updateTitle(dt); return; }   // the intro waits behind the title screen
   updateScene(dt);
   if (game.phase !== 'night') return;
   game.clock = Math.min(DAY_END, game.clock + dt / NIGHT_LEN);
@@ -1823,13 +1827,13 @@ function updateMate(dt, time) {
   m.head = lerp(m.head, target, 1 - Math.exp(-dt * 7));
 }
 // draw it with the tamandua's own drawing code, by lending it the pose for a moment
-function drawMate(time, rim) {
+function drawMate(time) {
   if (!mate.on) return;
   const keep = {};
   for (const k of ['rx', 'ry', 'rt', 'rf', 'gait', 'diag', 'head', 'moveAmt', 'sniff', 'mode', 'curl', 'claw', 'flinch', 'size']) {
     keep[k] = a[k]; a[k] = mate[k];
   }
-  drawTamandua(time, rim);
+  drawTamandua(time);
   Object.assign(a, keep);
 }
 
@@ -1980,13 +1984,13 @@ function drawRescuerParts(P, layer) {
 }
 // layer 'back': the beam and everything but the near arm (behind the tamandua and the cage);
 // layer 'front': the near arm, which holds the cage
-function drawRescuer(rim, layer) {
+function drawRescuer(layer) {
   if (!rescuer.on) return;
   const P = rescuerPose();
   ctx.save();
   ctx.translate(rescuer.x, groundY(rescuer.x));
   ctx.scale(rescuer.facing, 1);
-  if (layer === 'back' && !rim) {
+  if (layer === 'back') {
     // headlamp: a soft pale cone, stronger as it gets dark
     const hc = Math.cos(P.head), hs = Math.sin(P.head);
     const lx = P.neck[0] + 18 * hc + 21 * hs, ly = P.neck[1] + 18 * hs - 21 * hc;
@@ -1998,23 +2002,22 @@ function drawRescuer(rim, layer) {
     ctx.beginPath(); ctx.moveTo(lx, ly); ctx.arc(lx, ly, 320, P.head - 0.2, P.head + 0.2); ctx.closePath(); ctx.fill();
   }
   const parts = drawRescuerParts(P, layer);
-  ctx.fillStyle = ctx.strokeStyle = rim ? css(mix(pal.bottom, [255, 255, 255], 0.35), 0.9) : css(pal.ink);
-  ctx.lineWidth = 3.4; ctx.lineJoin = 'round';
-  for (const q of parts) { ctx.fill(q); if (rim) ctx.stroke(q); }
+  ctx.fillStyle = css(pal.ink);
+  for (const q of parts) ctx.fill(q);
   ctx.restore();
 }
 // a travel cage seen side-on: tray, roof, handle, bars, and a door at the front end that slides up
 // in its rails. Drawn with strokes, so overlapping bars can't cancel out.
-function drawCage(rim) {
+function drawCage() {
   if (!cage.on) return;
   const W = CAGE_W / 2, H = CAGE_H, lift = cage.door * (H - 6);
   ctx.save();
   ctx.translate(cage.x, cage.y);
   ctx.rotate(cage.tilt);
   ctx.lineCap = ctx.lineJoin = 'round';
-  ctx.strokeStyle = rim ? css(mix(pal.bottom, [255, 255, 255], 0.35), 0.9) : css(pal.ink);
+  ctx.strokeStyle = css(pal.ink);
   const line = (w, pts) => {
-    ctx.lineWidth = w + (rim ? 2.4 : 0);
+    ctx.lineWidth = w;
     ctx.beginPath(); ctx.moveTo(...pts[0]); for (const q of pts.slice(1)) ctx.lineTo(...q); ctx.stroke();
   };
   line(6, [[-W, -3], [W, -3]]);                          // tray
@@ -2040,7 +2043,6 @@ function drawSceneText(label) {
     label(text, cw / 2, y);
   };
   if (game.phase === 'intro') {
-    cap('raised in rehab, a young tamandua is going back to the forest', 0.8, 5, 70);
     cap('survive three nights on your own', 6, 10.5, 70);
   } else if (game.phase === 'rescued') {
     cap(game.cause === 'daylight' ? 'caught out in the daylight' : 'too weak to go on', 0.3, 5, 70);
@@ -2506,17 +2508,11 @@ function render(time, dt) {
 
   drawScent(viewHalf);
 
-  if (rimOn) drawRescuer(true, 'back');
-  drawRescuer(false, 'back');
-  if (game.phase !== 'dawn' && !a.hidden) {  // tucked away asleep, or carried off
-    if (rimOn) drawTamandua(time, true);
-    drawTamandua(time, false);
-  }
-  if (rimOn) drawMate(time, true);
-  drawMate(time, false);
-  if (rimOn) drawCage(true);
-  drawCage(false);
-  drawRescuer(false, 'front');   // no rim: it's in front of the body
+  drawRescuer('back');
+  if (game.phase !== 'dawn' && !a.hidden) drawTamandua(time);  // tucked away asleep, or carried off
+  drawMate(time);
+  drawCage();
+  drawRescuer('front');
   drawTongue();
   drawWelts(dt);
 
@@ -2553,7 +2549,8 @@ function render(time, dt) {
   ctx.lineWidth = 3;
   ctx.strokeStyle = css(mix(pal.bottom, [255, 255, 255], 0.3), 0.55);
   ctx.fillStyle = css(pal.ink, 0.75);
-  if (game.phase === 'intro' || game.phase === 'rescued' || game.phase === 'free') drawSceneText(label);
+  if (game.phase === 'title') drawTitle(label);
+  else if (game.phase === 'intro' || game.phase === 'rescued' || game.phase === 'free') drawSceneText(label);
   else drawHUD(time, dt, label);
   drawCard(label);
   if (fade.k > 0) {
@@ -2565,7 +2562,7 @@ function render(time, dt) {
 // title, stats, help and messages while you play
 function drawHUD(time, dt, label) {
   ctx.font = '600 18px ui-rounded, system-ui, sans-serif';
-  label('slurp', 20, 34);
+  label('Tupāra', 20, 34);
   ctx.font = '13px system-ui, sans-serif';
   ctx.fillStyle = css(pal.ink, 0.6);
   label(`night ${game.night} of ${NIGHTS}`, 20, 53);
@@ -2680,17 +2677,120 @@ function drawMemoryButton(x, y, w, label) {
 }
 canvas.addEventListener('click', (e) => {
   const r = canvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  const tb = titleBtnAt(mx, my);
+  if (tb) { tb.act(); return; }
   if (memBtn.on && mx >= memBtn.x && mx <= memBtn.x + memBtn.w && my >= memBtn.y && my <= memBtn.y + memBtn.h) memOpen = !memOpen;
 });
 canvas.addEventListener('mousemove', (e) => {
   const r = canvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
-  const over = memBtn.on && mx >= memBtn.x && mx <= memBtn.x + memBtn.w && my >= memBtn.y && my <= memBtn.y + memBtn.h;
+  const over = (memBtn.on && mx >= memBtn.x && mx <= memBtn.x + memBtn.w && my >= memBtn.y && my <= memBtn.y + memBtn.h) || titleBtnAt(mx, my);
   canvas.style.cursor = over ? 'pointer' : '';
 });
 
+// ---------- title screen: the story, and how to play ----------
+// Shown once, when the page loads, over the empty dusk forest. The intro is set up behind it and
+// waits (`updateScene` doesn't run in the 'title' phase). Play (or Enter) starts it.
+const STORY = [
+  "You are Tupāra, a young tamandua. When you were small, the rescue team carried you out of a " +
+    "forest fire, and you've grown up at their rescue center.",
+  "Today is a big day: you're going back to the wild.",
+  "Use your powerful snout to sniff out the tastiest ants and termites, and to stay clear of the " +
+    "nasty ones. Get through three nights on your own and the forest is yours. If not, the rescue " +
+    "team will bring you back to the center.",
+];
+const HOW_TO = [
+  ['the night', 'Forage from dusk until dawn. When it starts to get light, find a shelter and press Enter to sleep through the day. Caught out after sunrise, you lose energy fast.'],
+  ['energy', 'It drains all the time, faster when you move or hurry, and every ant you eat tops it up. Run out and the rescue team takes you back.'],
+  ['your nose', 'As you walk, scent drifts from every nest and trail. Each kind of ant or termite has a smell of its own. Some are a feast, some sting. Learn which is which.'],
+  ['shelters', 'There are three places to sleep: a hollow up a tree, a burrow under a stump, and a hollow log.'],
+];
+const HOW_KEYS = [
+  '← →  walk          ↑ ↓  climb at a trunk          ← → on a trunk  step onto a branch',
+  'X  rip into a nest          hold Space  eat ants          Shift  hurry',
+  'Enter  sleep in a shelter          Z  close-up          C  scent tint          H  hide help',
+];
+const TITLE_FADE = 0.8;
+const title = { how: false, btns: [], leaving: 0 };   // leaving: seconds left of the fade-out after Play
+function wrapText(text, maxW) {
+  const out = [];
+  let line = '';
+  for (const w of text.split(' ')) {
+    const t = line ? `${line} ${w}` : w;
+    if (line && ctx.measureText(t).width > maxW) { out.push(line); line = w; } else line = t;
+  }
+  if (line) out.push(line);
+  return out;
+}
+function playFromTitle() {
+  if (fade.action || game.phase !== 'title' || title.leaving > 0) return;
+  title.leaving = TITLE_FADE;
+}
+function updateTitle(dt) {
+  if (title.leaving <= 0) return;
+  title.leaving -= dt;
+  if (title.leaving <= 0) { title.how = false; game.phase = 'intro'; }
+}
+function drawTitle(label) {
+  ctx.save();
+  ctx.globalAlpha = title.leaving > 0 ? title.leaving / TITLE_FADE : 1;
+  ctx.fillStyle = css(pal.ink, 0.5);
+  ctx.fillRect(0, 0, cw, ch);
+  const light = mix(pal.bottom, [255, 255, 255], 0.5);
+  const W = Math.min(600, cw - 48), x0 = (cw - W) / 2;
+  ctx.textAlign = 'center';
+  ctx.strokeStyle = css(pal.ink, 0.4);
+  // lay the text out first, to centre the block vertically
+  const rows = [];   // [font, text, x, gap before, colour alpha]
+  const para = (font, text, gap, al = 0.92) => {
+    ctx.font = font;
+    wrapText(text, W).forEach((l, i) => rows.push([font, l, gap * (i === 0), al]));
+  };
+  if (!title.how) {
+    rows.push(['600 46px ui-rounded, system-ui, sans-serif', 'Tupāra', 0, 1]);
+    STORY.forEach((p, i) => para('17px system-ui, sans-serif', p, i === 0 ? 34 : 14));
+  } else {
+    rows.push(['600 30px ui-rounded, system-ui, sans-serif', 'how to play', 0, 1]);
+    for (const [head, text] of HOW_TO) {
+      rows.push(['600 15px ui-rounded, system-ui, sans-serif', head, 18, 0.75]);
+      para('15px system-ui, sans-serif', text, 0);
+    }
+    rows.push(['600 15px ui-rounded, system-ui, sans-serif', 'keys', 18, 0.75]);
+    for (const k of HOW_KEYS) para('14px system-ui, sans-serif', k, 0, 0.85);
+  }
+  const lh = (f) => parseInt(f.match(/(\d+)px/)[1], 10) * 1.55;
+  const textH = rows.reduce((h, r) => h + r[2] + lh(r[0]), 0);
+  let y = Math.max(24, (ch - textH - 80) / 2);
+  for (const [font, text, gap, al] of rows) {
+    y += gap + lh(font);
+    ctx.font = font;
+    ctx.fillStyle = css(light, al);
+    label(text, cw / 2, y - lh(font) * 0.3);
+  }
+  // buttons
+  const btns = title.how
+    ? [{ text: 'back', act: () => { title.how = false; } }, { text: 'play', act: playFromTitle, main: true }]
+    : [{ text: '?  how to play', act: () => { title.how = true; } }, { text: 'play', act: playFromTitle, main: true }];
+  ctx.font = '600 16px ui-rounded, system-ui, sans-serif';
+  const bw = 150, bh = 40, gap = 18, by = y + 28;
+  let bx = cw / 2 - (btns.length * bw + (btns.length - 1) * gap) / 2;
+  title.btns = [];
+  for (const b of btns) {
+    ctx.fillStyle = css(light, b.main ? 0.9 : 0.3);
+    ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 10); ctx.fill();
+    ctx.fillStyle = b.main ? css(pal.ink, 0.85) : css(light, 0.95);
+    ctx.fillText(b.text, bx + bw / 2, by + 26);
+    title.btns.push({ x: bx, y: by, w: bw, h: bh, act: b.act });
+    bx += bw + gap;
+  }
+  ctx.textAlign = 'left';
+  ctx.restore();
+}
+const titleBtnAt = (mx, my) => game.phase === 'title' && !fade.action && title.leaving <= 0
+  && title.btns.find((b) => mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h);
+
 // end-of-night / game-over / win card
 function drawCard(label) {
-  if (game.phase === 'night' || game.phase === 'intro' || fade.action) return;
+  if (game.phase === 'night' || game.phase === 'intro' || game.phase === 'title' || fade.action) return;
   if ((game.phase === 'rescued' || game.phase === 'free') && !scene.done) return;   // the scene plays out first
   let lines;
   if (game.phase === 'dawn') {
@@ -2747,7 +2847,7 @@ function frame(now) {
   zoom = lerp(zoom, closeUp ? 2.4 : 1, 1 - Math.exp(-dt * 4));
   sc = (ch / VIEW_H) * zoom;
   const zk = (zoom - 1) / 1.4;  // 0 wide … 1 close-up
-  const camX = game.phase === 'intro' ? INTRO_CAM
+  const camX = game.phase === 'intro' || game.phase === 'title' ? INTRO_CAM
     : game.phase === 'rescued' ? scene.camX ?? a.rx - 60
     : game.phase === 'free' ? scene.camX ?? a.rx + a.facing * 90
     : a.rx + a.facing * lerp(90, 20, zk);
@@ -2757,4 +2857,5 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 newGame();
+game.phase = 'title';   // the story first, then the release
 requestAnimationFrame(frame);
