@@ -7,10 +7,225 @@
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: #f3c68f; }
     canvas { display: block; width: 100vw; height: 100vh; }
+
+    /* ---------- the ? button and the information & guide panel ---------- */
+    :root {
+      --ink: #231915;           /* the silhouettes' dark */
+      --panel: rgba(38, 28, 24, 0.96);
+      --raised: rgba(255, 236, 214, 0.06);
+      --line: rgba(255, 236, 214, 0.12);
+      --text: rgba(255, 240, 225, 0.72);
+      --strong: rgba(255, 242, 228, 0.92);
+      --accent: #f1cfa6;        /* the hazy dusk sky */
+      --round: ui-rounded, system-ui, sans-serif;
+    }
+    #corner { position: fixed; top: 12px; right: 14px; z-index: 10; display: flex; gap: 8px; }
+    .corner-btn {
+      width: 34px; height: 34px; border-radius: 50%;
+      border: 1px solid rgba(35, 25, 21, 0.18);
+      background: rgba(255, 238, 220, 0.55); color: rgba(35, 25, 21, 0.78);
+      font: 600 17px var(--round); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.2s, transform 0.2s;
+    }
+    .corner-btn:hover { background: rgba(255, 238, 220, 0.8); transform: scale(1.06); }
+    .corner-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+    .corner-btn[hidden] { display: none; }
+    .corner-btn svg { width: 18px; height: 18px; }
+    #sound-btn .off, #sound-btn.muted .on { display: none; }
+    #sound-btn.muted .off { display: block; }
+
+    #guide {
+      position: fixed; inset: 0; z-index: 20; display: none;
+      align-items: center; justify-content: center; padding: 16px;
+      background: rgba(20, 14, 12, 0.4); backdrop-filter: blur(2px);
+      opacity: 0; transition: opacity 0.3s ease-in;
+      font: 14px/1.55 system-ui, sans-serif; color: var(--text);
+    }
+    #guide.mounted { display: flex; }
+    #guide.shown { opacity: 1; transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1); }
+    .guide-dialog {
+      width: 100%; max-width: 580px; border-radius: 16px; overflow: hidden;
+      background: var(--panel); border: 1px solid var(--line);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+      display: flex; flex-direction: column; outline: none;
+      transform: translate(var(--ox, 0px), var(--oy, 0px)) scale(0.02); opacity: 0;
+      transition: transform 0.3s ease-in, opacity 0.3s ease-in;
+    }
+    #guide.shown .guide-dialog {
+      transform: none; opacity: 1;
+      transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .guide-top {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--raised);
+    }
+    .guide-top h3 { margin: 0; display: flex; align-items: center; gap: 9px; font: 600 17px var(--round); color: var(--accent); }
+    .guide-top h3 span {
+      width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--ink);
+      font: 700 12px var(--round); display: flex; align-items: center; justify-content: center;
+    }
+    .guide-close {
+      border: 0; background: none; color: var(--text); cursor: pointer;
+      font-size: 22px; line-height: 1; padding: 2px 8px; border-radius: 6px;
+    }
+    .guide-close:hover { color: var(--accent); background: var(--raised); }
+    .guide-tabs { position: relative; display: flex; border-bottom: 1px solid var(--line); }
+    .guide-tabs button {
+      flex: 1; padding: 11px 8px; border: 0; background: none; cursor: pointer;
+      font: 600 15px var(--round); color: rgba(255, 240, 225, 0.55); transition: color 0.2s, background 0.2s;
+    }
+    .guide-tabs button:hover { color: var(--text); background: rgba(255, 236, 214, 0.03); }
+    .guide-tabs button[aria-selected="true"] { color: var(--accent); background: var(--raised); }
+    .guide-underline {
+      position: absolute; bottom: -1px; left: 0; width: calc(100% / 3); height: 2px;
+      background: var(--accent); transition: transform 0.3s ease-out;
+    }
+    .guide-body { padding: 16px; }
+    /* every tab is the same size, and scrolls if it needs to */
+    .guide-panel {
+      height: min(360px, calc(100vh - 190px)); overflow-y: auto; box-sizing: border-box;
+      padding: 16px; border-radius: 12px; background: rgba(0, 0, 0, 0.18); border: 1px solid var(--line);
+      scrollbar-width: thin; scrollbar-color: rgba(255, 236, 214, 0.2) transparent;
+    }
+    .guide-panel::-webkit-scrollbar { width: 6px; }
+    .guide-panel::-webkit-scrollbar-thumb { background: rgba(255, 236, 214, 0.2); border-radius: 3px; }
+    .guide-panel[hidden] { display: none; }
+    .guide-panel h4 { margin: 0 0 4px; font: 600 15px var(--round); color: var(--accent); }
+    .guide-panel p { margin: 0; }
+    .guide-panel section + section { margin-top: 22px; }
+    .guide-about p + p { margin-top: 12px; }
+    .guide-card { padding: 12px 14px; border-radius: 10px; background: var(--raised); border: 1px solid var(--line); }
+    .guide-card + .guide-card, h4 + .guide-card { margin-top: 10px; }
+    .guide-keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin-top: 6px; }
+    .guide-keys kbd { font: 600 13px var(--round); color: var(--strong); white-space: nowrap; }
+    .guide-card a {
+      font: 600 14px var(--round); color: var(--strong);
+      text-decoration: underline; text-decoration-color: rgba(255, 236, 214, 0.3); text-underline-offset: 3px;
+    }
+    .guide-card a:hover { color: var(--accent); text-decoration-color: var(--accent); }
+    .guide-card a + p { margin-top: 4px; }
   </style>
 </head>
 <body>
   <canvas id="c"></canvas>
+
+  <div id="corner">
+    <button id="sound-btn" class="corner-btn" type="button" title="Sound on/off" aria-label="Sound" aria-pressed="true" hidden>
+      <svg class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/>
+      </svg>
+      <svg class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/><path d="m16 9 6 6"/><path d="m22 9-6 6"/>
+      </svg>
+    </button>
+    <button id="guide-btn" class="corner-btn" type="button" title="Information &amp; guide" aria-label="Information and guide">?</button>
+  </div>
+
+  <div id="guide">
+    <div class="guide-dialog" tabindex="-1" role="dialog" aria-modal="true" aria-label="Information and guide">
+      <div class="guide-top">
+        <h3><span>?</span>Information &amp; guide</h3>
+        <button class="guide-close" type="button" title="Close" aria-label="Close">×</button>
+      </div>
+      <div class="guide-tabs" role="tablist">
+        <button type="button" role="tab" id="guide-tab-instructions" aria-controls="guide-instructions" aria-selected="true">Instructions</button>
+        <button type="button" role="tab" id="guide-tab-about" aria-controls="guide-about" aria-selected="false">About</button>
+        <button type="button" role="tab" id="guide-tab-references" aria-controls="guide-references" aria-selected="false">References</button>
+        <div class="guide-underline"></div>
+      </div>
+      <div class="guide-body">
+        <div class="guide-panel" id="guide-instructions" role="tabpanel" aria-labelledby="guide-tab-instructions">
+          <div class="guide-card">
+            <h4>The night</h4>
+            <p>Forage from dusk until dawn. When it starts to get light, find a shelter and press Enter to sleep through the day. Caught out after sunrise, you lose energy fast.</p>
+          </div>
+          <div class="guide-card">
+            <h4>Energy</h4>
+            <p>It drains all the time, faster when you move or hurry, and every ant you eat tops it up. Run out and the rescue team takes you back.</p>
+          </div>
+          <div class="guide-card">
+            <h4>Your nose</h4>
+            <p>As you walk, scent drifts from every nest and trail. Each kind of ant or termite has a smell of its own. Some are a feast, some sting. Learn which is which.</p>
+          </div>
+          <div class="guide-card">
+            <h4>Shelters</h4>
+            <p>Tamanduas sleep in tree hollows, abandoned burrows, and hollow logs. Find those to sleep during the day.</p>
+          </div>
+          <div class="guide-card">
+            <h4>Keys</h4>
+            <div class="guide-keys">
+              <kbd>← →</kbd><span>walk</span>
+              <kbd>↑ ↓</kbd><span>climb at a trunk</span>
+              <kbd>← → on a trunk</kbd><span>step onto a branch</span>
+              <kbd>X</kbd><span>rip into a nest</span>
+              <kbd>hold Space</kbd><span>eat ants</span>
+              <kbd>Shift</kbd><span>hurry</span>
+              <kbd>Enter</kbd><span>sleep in a shelter, once it gets light</span>
+              <kbd>Z</kbd><span>close-up</span>
+              <kbd>?</kbd><span>this guide</span>
+            </div>
+          </div>
+        </div>
+        <div class="guide-panel guide-about" id="guide-about" role="tabpanel" aria-labelledby="guide-tab-about" hidden>
+          <p>A collaboration between Nature Venture and Internet of Elephants.<br>Developed by Gautam Shah.</p>
+          <p>I’ll be honest, I originally wanted to make a game about anteaters just so I could call it “Snoutrageous”. But as I dived into the lives of tamanduas, the game and the name didn’t match and a more subtle story of survival and learning felt more appropriate. Beyond being one of the cutest animals on earth, tamanduas are incredible creatures. The way it walks, how it uses its sense of smell to know which ants to eat and which not, that it might uncover 200 mounds in a night to eat around 9,000 ants, the way it walks on the sides of its feet because its claws get in the way, and the hysterical kung fu stance it takes to defend itself.</p>
+          <p>It’s also incredibly sad how susceptible they are to wildfires, roadkill, loss of habitat and climate change. A big thanks to all the conservation organizations in Mexico, Central and South America that are working to keep them protected.</p>
+          <p>While we tried to stay directionally correct ecologically, we also took some creative license in order to create a pleasing experience and also will not have gotten all the details correct. But if we did get anything drastically wrong, let us know and we’ll try and fix it.</p>
+          <p>It should be pretty obvious that Tupāra was built almost entirely by AI. Of course, there are many things we would love to have had the help of a biologist, an illustrator, a creative director, and a game developer to get exactly right. But what’s exciting is that we didn’t need a whole team of people to get started. We had an idea, some curiosity, a couple of computers and a self-imposed timeline of less than a week. So that’s what we did. And we’re pretty excited about what else we might be able to make this way.</p>
+          <p>We hope you enjoy this and many more similar experiences to come.</p>
+          <p>Kalindi and Gautam</p>
+        </div>
+        <div class="guide-panel" id="guide-references" role="tabpanel" aria-labelledby="guide-tab-references" hidden>
+          <section>
+            <h4>Videos</h4>
+            <div class="guide-card">
+              <a href="https://www.si.edu/object/southern-tamanduas-playing-smithsonianaposs-national-zoo%3Ayt_MJHC4TfkrBw" target="_blank" rel="noopener noreferrer">Southern Tamanduas Playing at the Smithsonian's National Zoo</a>
+              <p>A short video showing two southern tamanduas playing and wrestling. It offers a fun glimpse of their behavior and the impressive claws and limbs they use while interacting.</p>
+            </div>
+          </section>
+          <section>
+            <h4>Articles &amp; Species Profiles</h4>
+            <div class="guide-card">
+              <a href="https://www.nationalzoo.si.edu/animals/news/how-long-tamanduas-tongue-and-more-tamandua-facts" target="_blank" rel="noopener noreferrer">How Long Is a Tamandua's Tongue? And More Tamandua Facts — Smithsonian's National Zoo</a>
+              <p>An accessible introduction to some of the tamandua's strangest adaptations, including its remarkably long tongue, toothless jaws, insect diet and prehensile tail.</p>
+            </div>
+            <div class="guide-card">
+              <a href="https://nationalzoo.si.edu/animals/southern-tamandua" target="_blank" rel="noopener noreferrer">Southern Tamandua — Smithsonian's National Zoo</a>
+              <p>A comprehensive species profile covering habitat, diet, physical adaptations, climbing, sleep, social behavior, reproduction and threats. A good starting point for anyone wanting to learn more about the southern tamandua.</p>
+            </div>
+            <div class="guide-card">
+              <a href="https://animaldiversity.org/accounts/Tamandua_tetradactyla/" target="_blank" rel="noopener noreferrer">Tamandua tetradactyla — Animal Diversity Web</a>
+              <p>A detailed natural-history account from the University of Michigan covering the southern tamandua's anatomy, distribution, habitat, diet, reproduction, behavior and senses.</p>
+            </div>
+          </section>
+          <section>
+            <h4>Research</h4>
+            <div class="guide-card">
+              <a href="https://www.tandfonline.com/doi/full/10.1080/01650521.2023.2204714" target="_blank" rel="noopener noreferrer">Feeding Habits of the Lesser Anteater Tamandua tetradactyla in the Brazilian Pampa</a>
+              <p>A recent study examining what southern tamanduas eat in the Brazilian Pampa. It provides an interesting look at how this highly specialized insectivore uses its environment and exploits ant and termite colonies.</p>
+            </div>
+            <div class="guide-card">
+              <a href="https://onlinelibrary.wiley.com/doi/10.1002/zoo.21754" target="_blank" rel="noopener noreferrer">Free-ranging Southern Anteater Mating Behavior: Contribution to Tamandua Natural History</a>
+              <p>A field observation documenting mating behavior in wild southern tamanduas. Among other observations, the study describes the unusual role of the animal's prehensile tail during mating.</p>
+            </div>
+            <div class="guide-card">
+              <a href="https://www.science.smith.edu/departments/Biology/VHAYSSEN/msi/pdf/874.1.pdf" target="_blank" rel="noopener noreferrer">Tamandua mexicana — Mammalian Species</a>
+              <p>A detailed scientific account of the northern tamandua covering its anatomy, ecology, diet, reproduction and behavior. It is particularly useful for understanding how tamanduas use both trees and the ground.</p>
+            </div>
+          </section>
+          <section>
+            <h4>Conservation</h4>
+            <div class="guide-card">
+              <a href="https://www.tamandua.org/" target="_blank" rel="noopener noreferrer">Instituto Tamanduá</a>
+              <p>A Brazilian nonprofit dedicated to the research and conservation of tamanduas, sloths and armadillos. Its work includes field research, conservation, wildlife rehabilitation, environmental education and habitat protection across several Brazilian biomes.</p>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     // always load the latest main.js (the dev server lets the browser cache it)
     const s = document.createElement('script');

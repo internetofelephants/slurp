@@ -29,7 +29,8 @@ The name "Snoutrageous" belongs to a different game. Don't use it here.
 
 ## Running and testing
 - `index.html` + `main.js`, no build step. Dev server: `.claude/launch.json` → `slurp-dev`
-  (`python3 -m http.server 8321`).
+  (`python3 -m http.server`, on `$PORT` if set, else 8321). `autoPort` is on, so if another
+  session already holds 8321 you get a free port instead. Nothing depends on the port.
 - `index.html` loads `main.js?v=<timestamp>` because the dev server lets the browser cache stale code.
   If behaviour doesn't match the source, check `updateScent.toString()` etc. in the page.
 - The browser pane throttles `requestAnimationFrame` when hidden, so real-time tests are unreliable. To
@@ -76,8 +77,8 @@ strike into a nest), `sting` (double nip) and `bullet` (a much worse one), `shel
 three-note lullaby on Enter to sleep), `snap` (the branch cracking), `thud` (when the tamandua
 hits the ground after falling with a snapped branch, or when the branch lands if it wasn't on
 it), and `bees` (a marimba run, the first time a hive gives honey each night, via `n.rang`). The
-audio starts on the first key or click. M mutes everything (effects and music), and that's
-remembered in localStorage.
+audio starts on the first key or click. The sound button beside the ? (hidden on the title screen;
+`soundBtn`, `showSound`) or M mutes everything (effects and music), and that's remembered in localStorage.
 **Soundtrack** (`startAmbience`, `AMBIENCE`): for now a field recording, not music. The generated
 piece (D on the audition page) was too sad in play, so the user chose to stand in
 `audio/borneo-canopy.mp3` (Borneo rainforest canopy, 3 min) until better music is found. It's the
@@ -92,10 +93,18 @@ runs without it).
 
 **Title screen.** Shown once per page load, over the dusk forest with the intro waiting behind it.
 It tells the story: the player is **Tupāra**, rescued from a forest fire as a baby and raised at the
-rescue center (`STORY`). There's a "how to play" page (`HOW_TO`, `HOW_KEYS`), which explains the
-rules and keys but never which smells are good. Play or Enter fades the text away (`title.leaving`) and the intro starts, with no fade to black.
-`?` opens the how-to page.
-Buttons are drawn on the canvas (`title.btns`, hit-tested in the click handler).
+rescue center (`STORY`, the user's own wording). Play or Enter fades the text away (`title.leaving`) and the intro starts, with no fade to black.
+Buttons are drawn on the canvas (`title.btns`, hit-tested in the click handler). "? how to play" opens the guide.
+
+**Guide.** A ? button fixed in the top-right corner (always there, with the sound button to its left
+from the intro on; the stats panel sits left of both) opens an "Information & guide" panel, modelled on the user's other games (Cross, Camouflage
+Captcha): three equal tabs (Instructions, About, References), every panel the same fixed height
+and scrolling if needed. It's HTML over the canvas, with the markup and content in `index.html`
+(so references are real links, titles hyperlinked, opening in a new tab) and the wiring
+(`openGuide`/`closeGuide`/`guideTab`) in `main.js`. It grows out of whatever opened it. The game
+pauses while it's open (`frame` skips the updates), and keys go to it: Esc or `?` closes it.
+Instructions explain the rules and keys but never which smells are good. The keys list leaves out
+C, M and H (the user asked). The on-screen help lines start hidden (`helpOn` false; H shows them). About is the user's own text (credits, why tamanduas, the AI note), signed Kalindi and Gautam.
 
 **Scenes.** Both are lists of steps (timed `d`, or `until()`) played by `playScene`/`updateScene`
 and shared helpers (`walkIn`, `walkOff`). Captions show and the HUD is hidden during them, and Enter
@@ -125,8 +134,11 @@ wakes at its shelter, climbs down if it slept in a tree hollow, and walks away f
 (`scene.dir`: left if it's within 900 of it, otherwise right). A grown tamandua (`mate`, drawn
 1.15× by lending its pose to `drawTamandua` in `drawMate`) comes the other way. They meet nose to
 nose (`greet`). Then the mate leads to the nearest tree and they climb it together, one up each side
-of the trunk (`mate.climb`; `updateMate` walks and climbs). The picture fades as they go up, before
-the "three nights on your own" card.
+of the trunk (`mate.climb`; `updateMate` walks and climbs). The picture fades as they go up. Then "5 months later" shows over
+the dark (`scene.later`, drawn after the fade), and the picture comes up on Tupāra walking right at
+`LATER_X` with a baby on her back (`a.baby` → `drawBaby`, drawn in her body frame so it rocks
+with her waddle; `drawAs` lends a pose to `drawTamandua`, shared with the mate). The camera
+stops and she walks off screen, then it fades to a card with only a "play again" button (`againBtn`; Enter works too).
 
 **Night clock.** `NIGHT_LEN` 240 s. The sky blends dusk → night → dawn → day along `game.clock`
 (0 dusk, 1 sunrise). From `DAWN` (0.8, 3:12) you may sleep. After sunrise you're exposed and lose
@@ -173,7 +185,7 @@ smells stronger, and a nearly empty one barely at all. Each species has its own 
 hidden while holding Space (eating). It's banded by distance from the snout (`SCENT_BANDS`). Walking
 nose-first into a nest gives a strong puff. Symbols of what's at the snout float over the head.
 
-**Learning.** Eating from a new nest shows the species name briefly (no notebook). Species tasted on
+**Learning.** Eating from a new nest shows the species name briefly, just above the tamandua (no notebook). Species tasted on
 nights 1 and 2 are committed to the **nose memory** when you sleep (`commitMemory`,
 `JOURNAL_NIGHTS`). It's opened by clicking the button under the stats panel, and verdicts come from
 the player's own experience. It resets on a new game.
