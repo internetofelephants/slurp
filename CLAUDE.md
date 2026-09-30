@@ -125,7 +125,7 @@ after the cage.
 tamandua climbs down on its own (puppet keys). Then it slumps (`a.slump`, head hanging), and the
 rescuer walks in from the left, kneels, reaches under it and gathers it to their chest
 (`rescuer.holds`: the tamandua follows the near hand), stands and walks off left. The camera
-stays put, and then the "rescue team found you" card shows (`a.hidden`). Carrying it in the arms
+stays put, and then the "rescue team found you" card shows (`a.hidden`): "back to safety for now", ants eaten, and the same "play again" button as the win (`againBtn`; Enter works too). Carrying it in the arms
 was chosen over the cage because the rescuer can't reach past a cage to the tamandua while
 kneeling.
 

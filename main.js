@@ -3218,7 +3218,7 @@ GUIDE_TABS.forEach((t) => document.getElementById(`guide-tab-${t}`).addEventList
 
 // end-of-night / game-over / win card
 const againBtn = { x: 0, y: 0, w: 0, h: 0 };
-const againAt = (mx, my) => game.phase === 'free' && scene.done && !fade.action
+const againAt = (mx, my) => (game.phase === 'free' || game.phase === 'rescued') && scene.done && !fade.action
   && mx >= againBtn.x && mx <= againBtn.x + againBtn.w && my >= againBtn.y && my <= againBtn.y + againBtn.h;
 function drawCard(label) {
   if (game.phase === 'night' || game.phase === 'intro' || game.phase === 'title' || fade.action) return;
@@ -3238,16 +3238,14 @@ function drawCard(label) {
     lines = [
       'the rescue team found you',
       game.cause === 'daylight'
-        ? `caught out in the daylight on night ${game.night} — back to rehab for now`
-        : `you ran out of energy on night ${game.night} — back to rehab for now`,
+        ? `caught out in the daylight on night ${game.night} — back to safety for now`
+        : `you ran out of energy on night ${game.night} — back to safety for now`,
       `ants eaten  ${game.total}`,
-      'Enter  try again',
     ];
   }
-  ctx.fillStyle = css(pal.ink, 0.45);
-  ctx.fillRect(0, 0, cw, ch);
-  if (game.phase === 'free') {   // after the baby: just a way to play again (or Enter)
-    const bw = 150, bh = 40, bx = cw / 2 - bw / 2, by = ch * 0.5 - bh / 2;
+  // the play again button (after the baby, or after the rescue), with its top at `by`
+  const again = (by) => {
+    const bw = 150, bh = 40, bx = cw / 2 - bw / 2;
     ctx.fillStyle = css(mix(pal.bottom, [255, 255, 255], 0.5), 0.9);
     ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 10); ctx.fill();
     ctx.font = '600 16px ui-rounded, system-ui, sans-serif';
@@ -3256,17 +3254,22 @@ function drawCard(label) {
     ctx.fillText('play again', cw / 2, by + 26);
     ctx.textAlign = 'left';
     Object.assign(againBtn, { x: bx, y: by, w: bw, h: bh });
-    return;
-  }
+  };
+  ctx.fillStyle = css(pal.ink, 0.45);
+  ctx.fillRect(0, 0, cw, ch);
+  if (game.phase === 'free') { again(ch * 0.5 - 20); return; }   // after the baby: just a way to play again (or Enter)
   ctx.textAlign = 'center';
   ctx.strokeStyle = css(pal.ink, 0.4);
   const light = mix(pal.bottom, [255, 255, 255], 0.5);
+  const prompt = game.phase === 'dawn';   // the last line is the Enter prompt (the rescue card has a button instead)
   lines.forEach((l, i) => {
-    ctx.font = i === 0 ? '600 30px ui-rounded, system-ui, sans-serif' : i === lines.length - 1 ? '600 15px ui-rounded, system-ui, sans-serif' : '16px system-ui, sans-serif';
-    ctx.fillStyle = css(light, i === lines.length - 1 ? 0.75 : 0.95);
-    label(l, cw / 2, ch * 0.42 + (i === 0 ? 0 : 20 + i * 28) + (i === lines.length - 1 ? 18 : 0));
+    const last = prompt && i === lines.length - 1;
+    ctx.font = i === 0 ? '600 30px ui-rounded, system-ui, sans-serif' : last ? '600 15px ui-rounded, system-ui, sans-serif' : '16px system-ui, sans-serif';
+    ctx.fillStyle = css(light, last ? 0.75 : 0.95);
+    label(l, cw / 2, ch * 0.42 + (i === 0 ? 0 : 20 + i * 28) + (last ? 18 : 0));
   });
   ctx.textAlign = 'left';
+  if (game.phase === 'rescued') again(ch * 0.42 + 20 + lines.length * 28 + 14);
 }
 
 let last = performance.now();
