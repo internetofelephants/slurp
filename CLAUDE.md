@@ -185,6 +185,15 @@ smells stronger, and a nearly empty one barely at all. Each species has its own 
 hidden while holding Space (eating). It's banded by distance from the snout (`SCENT_BANDS`). Walking
 nose-first into a nest gives a strong puff. Symbols of what's at the snout float over the head.
 
+**Field notes** (`FIELD_NOTES`, `fieldNote(id)`, `updateNotes`, `drawNote`). True tamandua facts
+(from the References tab), one line in a soft dark box at the bottom of the screen for 8 s, no
+click. Most show the first time you do what they're about (climb, branch, rip, first ant, 100 ants,
+sting, army/leafcutter bite, honey, walking a while, scent, shelter, dawn); three (`QUIET_NOTES`)
+come after 5 s standing still. Each once per game, at most one every 40 s (`NOTE_GAP`), and only
+when no flash or species name is up. A triggered note waits 20 s for its turn (60 s for one-off
+moments, `NOTE_WAIT_RARE`) and is otherwise let go. None may give away which smells are good; the
+sting ones only come after a sting. The user approved the list and wording.
+
 **Learning.** Eating from a new nest shows the species name briefly, just above the tamandua (no notebook). Species tasted on
 nights 1 and 2 are committed to the **nose memory** when you sleep (`commitMemory`,
 `JOURNAL_NIGHTS`). It's opened by clicking the button under the stats panel, and verdicts come from

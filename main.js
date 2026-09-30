@@ -1000,6 +1000,7 @@ function findClawTarget(px, py) {
 function hitNest(n, s, dir) {
   n.damaged = true; n.quiet = 0;
   sfx('rip');
+  fieldNote('rip');
   if (n.crust > 0) {
     // still chipping through the hard outer wall: a dent and some grit, no ants yet
     n.crust--;
@@ -1021,7 +1022,7 @@ function hitNest(n, s, dir) {
     const k = Math.min(n.brood, randInt(2, 3));
     n.brood -= k;
     for (let i = 0; i < k; i++) ants.push({ kind: 'honey', nest: n, home: n, wx: s.x + rand(-5, 5), wy: s.y + rand(-5, 5), state: 'live' });
-    if (!n.rang) { n.rang = true; sfx('bees'); }   // the first honey from this hive tonight
+    if (!n.rang) { n.rang = true; sfx('bees'); fieldNote('honey', NOTE_WAIT_RARE); }   // the first honey from this hive tonight
   } else if (n.breaches > BROOD_AFTER && n.brood > 0 && Math.random() < BROOD_CHANCE) {
     const k = Math.min(n.brood, randInt(3, 5));
     n.brood -= k;
@@ -1578,6 +1579,7 @@ function eatAnt(ant) {
   const home = ant.home, sp = SPECIES[home.species];
   game.tonight++; game.total++;
   sfx('eat');
+  fieldNote('tongue');
   const gain = ant.kind === 'honey' ? HONEY_ENERGY : sp.energy * (ant.kind === 'brood' ? 2 : 1);
   game.energy = Math.min(E_MAX, game.energy + gain);
   if (ant.kind === 'honey') flash = { text: 'honey!', t: 1.2 };
@@ -1596,6 +1598,8 @@ function sting(where, species) {
   const sp = SPECIES[species] || {};
   if (species) tasted(species).stings++;
   game.stings++;
+  fieldNote('sting');
+  if (species === 'army' || species === 'leafcutter') fieldNote('avoid', NOTE_WAIT_RARE);
   sfx(species === 'bullet' ? 'bullet' : 'sting');
   spend(sp.hurt || STING_COST);
   a.flinch = sp.flinch || 0.6; a.tongueCd = Math.max(a.tongueCd, (sp.flinch || 0.6) + 0.2);
@@ -1698,6 +1702,7 @@ function startNight(n) {
   Object.assign(game, { phase: 'night', night: n, clock: 0, tonight: 0, stings: 0, warned: false, dawnWarned: false, exposedWarned: false });
   refreshForest();
   found.t = 0;
+  notes.id = null;
   flash = { text: `night ${n}`, t: 2.5 };
 }
 function newGame() {
@@ -1710,6 +1715,7 @@ function newGame() {
   cam.x = START_X + 90;
   Object.assign(game, { energy: E_START, total: 0, riverSeen: false });
   for (const k in journal) delete journal[k];     // a fresh start: the nose memory is earned again
+  resetNotes();                                   // and the field notes come round again
   for (const k in tonight) delete tonight[k];
   memOpen = false;
   for (const s of shelters) s.found = false;
@@ -1773,7 +1779,7 @@ function updateGame(dt) {
   updateScene(dt);
   if (game.phase !== 'night') return;
   game.clock = Math.min(DAY_END, game.clock + dt / NIGHT_LEN);
-  if (game.clock >= DAWN && !game.dawnWarned) { game.dawnWarned = true; flash = { text: "it's getting light — find somewhere to sleep", t: 3 }; }
+  if (game.clock >= DAWN && !game.dawnWarned) { game.dawnWarned = true; flash = { text: "it's getting light — find somewhere to sleep", t: 3 }; fieldNote('dawn', NOTE_WAIT_RARE); }
   if (game.clock >= 1) {
     spend(EXPOSED_DRAIN * dt);
     if (!game.exposedWarned) { game.exposedWarned = true; flash = { text: "daylight — you're exposed! get to shelter", t: 3 }; }
@@ -1788,8 +1794,10 @@ function updateGame(dt) {
     if (!s.found && Math.hypot(s.x - a.rx, s.y - a.ry) < 110) {
       s.found = true;
       flash = { text: `${s.name} — somewhere to sleep`, t: 2.8 };
+      fieldNote('shelter', NOTE_WAIT_RARE);
     }
   }
+  updateNotes(dt);
   const moving = Math.abs(a.vel) > 3;
   const hurrying = moving && held('ShiftLeft', 'ShiftRight') && game.energy >= WEAK;
   const rest = a.mode === 'ground' ? DRAIN_REST : DRAIN_REST_TREE;
@@ -1798,6 +1806,90 @@ function updateGame(dt) {
   if (game.energy < WEAK && !game.warned) { game.warned = true; flash = { text: 'getting weak — find ants', t: 2.5 }; }
   if (game.energy >= WEAK + 5) game.warned = false;
   if (game.energy <= 0) startRescue(game.clock >= 1 ? 'daylight' : 'energy');
+}
+
+// ---------- field notes ----------
+// Small true facts about tamanduas, one at a time in a soft box at the bottom of the screen, never
+// in the way and never needing a click. Most show the first time you do what they're about; a few
+// come up when you stop for a moment. Each shows once per game, at most one every NOTE_GAP s, and
+// only when no other message is up. None gives away which smells are good (the sting ones only
+// come after a sting). Sources are in the guide's References tab.
+const FIELD_NOTES = {
+  climb: 'Tamanduas are at home in trees. They can spend more than 60% of their time off the ground.',
+  branch: 'That tail grips like a hand. Its underside and tip are bare, for a better hold.',
+  rip: 'Tamanduas tear into nests with powerful forelimbs and long, curved claws.',
+  tongue: "A tamandua's tongue can reach 40 cm (about 16 in), and it has no teeth at all.",
+  hundred: 'A tamandua can eat about 9,000 insects in a single day.',
+  sting: 'Tamanduas avoid ants armed with strong chemical defences.',
+  avoid: 'In the wild, tamanduas steer clear of army ants and leafcutter ants.',
+  honey: 'Besides ants and termites, tamanduas also eat bees and their honey.',
+  hands: "Tamanduas walk on the outsides of their hands, so their claws don't dig into their palms.",
+  nose: 'Tamanduas find their food by smell. Their eyesight is poor.',
+  shelter: 'By day, tamanduas are thought to sleep in hollow trees or in burrows dug by other animals.',
+  dawn: 'Tamanduas are mainly nocturnal, but are sometimes out during the day.',
+  // for quiet moments (standing still, or resting up a tree)
+  gizzard: 'With no teeth, a tamandua relies on a muscular gizzard in its stomach to grind up insects.',
+  mouth: "A tamandua's mouth opens only about as wide as a pencil eraser.",
+  defend: 'Threatened, a tamandua hisses, gives off a strong smell, and holds on with its feet and tail to keep its claws free to fight.',
+};
+const QUIET_NOTES = ['gizzard', 'mouth', 'defend'];
+const NOTE_GAP = 40;     // s from one note going to the next one showing
+const NOTE_SHOW = 8;     // s each is up, fading in and out
+const NOTE_WAIT = 20;    // s a triggered note waits for its turn before it lets the moment go
+const NOTE_WAIT_RARE = 60;   // … or for moments that may not come again soon (longer than a note plus the gap)
+const QUIET_AFTER = 5;   // s of standing still before a quiet-moment note
+const notes = { seen: new Set(), asked: {}, id: null, t: 0, gap: 0, still: 0, walked: 0 };
+// `wait`: how long it may wait for its turn
+function fieldNote(id, wait = NOTE_WAIT) {
+  if (!notes.seen.has(id) && !(id in notes.asked)) notes.asked[id] = { at: game.time, until: game.time + wait };
+}
+function resetNotes() {
+  notes.seen.clear(); notes.asked = {}; notes.id = null;
+  notes.t = notes.gap = notes.still = notes.walked = 0;
+}
+function updateNotes(dt) {
+  // things that are noticed rather than happening at one place in the code
+  if (a.mode === 'trunk') fieldNote('climb');
+  if (a.mode === 'branch') fieldNote('branch');
+  if (game.tonight >= 100) fieldNote('hundred');
+  if (a.scentVis > 0.45) fieldNote('nose');
+  if (a.mode === 'ground' && Math.abs(a.vel) > 3) notes.walked += dt;
+  if (notes.walked > 25) fieldNote('hands');
+  notes.still = a.moveAmt < 0.1 && a.sniff < 0.2 && a.claw.t < 0 ? notes.still + dt : 0;
+  // a note that missed its moment is let go (if it's a thing you do again, it'll come round again)
+  for (const id in notes.asked) if (game.time > notes.asked[id].until) delete notes.asked[id];
+  if (notes.id) {
+    notes.t -= dt;
+    if (notes.t <= 0) { notes.id = null; notes.gap = NOTE_GAP; }
+    return;
+  }
+  notes.gap -= dt;
+  if (notes.gap > 0 || flash.t > 0 || found.t > 0) return;
+  let id = Object.keys(notes.asked).sort((p, q) => notes.asked[p].at - notes.asked[q].at)[0];
+  if (!id && notes.still > QUIET_AFTER) id = QUIET_NOTES.find((k) => !notes.seen.has(k));
+  if (!id) return;
+  delete notes.asked[id];
+  notes.seen.add(id);
+  Object.assign(notes, { id, t: NOTE_SHOW });
+}
+function drawNote() {
+  if (!notes.id || game.phase !== 'night') return;
+  const al = clamp(Math.min(NOTE_SHOW - notes.t, notes.t) / 0.6, 0, 1);
+  ctx.font = '15px system-ui, sans-serif';
+  const lines = wrapText(FIELD_NOTES[notes.id], Math.min(560, cw - 72));
+  const lh = 21, h = 30 + lines.length * lh;
+  const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 44, x = cw / 2, y = ch - 22 - h;
+  ctx.fillStyle = css(pal.ink, 0.55 * al);   // a soft dark box, so it reads over ground or sky
+  ctx.beginPath(); ctx.roundRect(x - w / 2, y, w, h, 12); ctx.fill();
+  const light = mix(pal.bottom, [255, 255, 255], 0.6);
+  ctx.textAlign = 'center';
+  ctx.font = '600 11px ui-rounded, system-ui, sans-serif';
+  ctx.fillStyle = css(light, 0.6 * al);
+  ctx.fillText('FIELD NOTE', x, y + 18);
+  ctx.font = '15px system-ui, sans-serif';
+  ctx.fillStyle = css(light, 0.95 * al);
+  lines.forEach((l, i) => ctx.fillText(l, x, y + 38 + i * lh));
+  ctx.textAlign = 'left';
 }
 
 // ---------- sound ----------
@@ -2987,6 +3079,7 @@ function drawHUD(time, dt, label) {
     ctx.textAlign = 'left';
   }
   drawShelterHint(label);
+  drawNote();
   if (found.t > 0) {
     // what you've just started eating, just above the tamandua (over the highest of its back and
     // snout, so it clears the head on a trunk too), where the player is already looking
