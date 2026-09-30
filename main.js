@@ -1820,6 +1820,7 @@ const FIELD_NOTES = {
   rip: 'Tamanduas tear into nests with powerful forelimbs and long, curved claws.',
   tongue: "A tamandua's tongue can reach 40 cm (about 16 in), and it has no teeth at all.",
   hundred: 'A tamandua can eat about 9,000 insects in a single day.',
+  quick: 'Tamanduas often spend only 30 to 60 seconds per nest they find, quickly moving before getting stung or emptying a potential future food source.',
   sting: 'Tamanduas avoid ants armed with strong chemical defences.',
   avoid: 'In the wild, tamanduas steer clear of army ants and leafcutter ants.',
   honey: 'Besides ants and termites, tamanduas also eat bees and their honey.',
@@ -1833,6 +1834,7 @@ const FIELD_NOTES = {
   defend: 'Threatened, a tamandua hisses, gives off a strong smell, and holds on with its feet and tail to keep its claws free to fight.',
 };
 const QUIET_NOTES = ['gizzard', 'mouth', 'defend'];
+const EARLY_NOTES = ['quick'];   // these jump the queue, so they come early in the game
 const NOTE_GAP = 40;     // s from one note going to the next one showing
 const NOTE_SHOW = 8;     // s each is up, fading in and out
 const NOTE_WAIT = 20;    // s a triggered note waits for its turn before it lets the moment go
@@ -1852,6 +1854,7 @@ function updateNotes(dt) {
   if (a.mode === 'trunk') fieldNote('climb');
   if (a.mode === 'branch') fieldNote('branch');
   if (game.tonight >= 100) fieldNote('hundred');
+  if (game.total >= 10) fieldNote('quick', NOTE_WAIT_RARE);   // a few ants into the first nest
   if (a.scentVis > 0.45) fieldNote('nose');
   if (a.mode === 'ground' && Math.abs(a.vel) > 3) notes.walked += dt;
   if (notes.walked > 25) fieldNote('hands');
@@ -1865,7 +1868,8 @@ function updateNotes(dt) {
   }
   notes.gap -= dt;
   if (notes.gap > 0 || flash.t > 0 || found.t > 0) return;
-  let id = Object.keys(notes.asked).sort((p, q) => notes.asked[p].at - notes.asked[q].at)[0];
+  const first = (k) => (EARLY_NOTES.includes(k) ? 0 : 1);
+  let id = Object.keys(notes.asked).sort((p, q) => first(p) - first(q) || notes.asked[p].at - notes.asked[q].at)[0];
   if (!id && notes.still > QUIET_AFTER) id = QUIET_NOTES.find((k) => !notes.seen.has(k));
   if (!id) return;
   delete notes.asked[id];
@@ -1877,18 +1881,14 @@ function drawNote() {
   const al = clamp(Math.min(NOTE_SHOW - notes.t, notes.t) / 0.6, 0, 1);
   ctx.font = '15px system-ui, sans-serif';
   const lines = wrapText(FIELD_NOTES[notes.id], Math.min(560, cw - 72));
-  const lh = 21, h = 30 + lines.length * lh;
+  const lh = 21, h = 14 + lines.length * lh;
   const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 44, x = cw / 2, y = ch - 22 - h;
   ctx.fillStyle = css(pal.ink, 0.55 * al);   // a soft dark box, so it reads over ground or sky
   ctx.beginPath(); ctx.roundRect(x - w / 2, y, w, h, 12); ctx.fill();
   const light = mix(pal.bottom, [255, 255, 255], 0.6);
   ctx.textAlign = 'center';
-  ctx.font = '600 11px ui-rounded, system-ui, sans-serif';
-  ctx.fillStyle = css(light, 0.6 * al);
-  ctx.fillText('FIELD NOTE', x, y + 18);
-  ctx.font = '15px system-ui, sans-serif';
   ctx.fillStyle = css(light, 0.95 * al);
-  lines.forEach((l, i) => ctx.fillText(l, x, y + 38 + i * lh));
+  lines.forEach((l, i) => ctx.fillText(l, x, y + 22 + i * lh));
   ctx.textAlign = 'left';
 }
 

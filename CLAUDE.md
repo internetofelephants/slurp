@@ -186,8 +186,9 @@ hidden while holding Space (eating). It's banded by distance from the snout (`SC
 nose-first into a nest gives a strong puff. Symbols of what's at the snout float over the head.
 
 **Field notes** (`FIELD_NOTES`, `fieldNote(id)`, `updateNotes`, `drawNote`). True tamandua facts
-(from the References tab), one line in a soft dark box at the bottom of the screen for 8 s, no
-click. Most show the first time you do what they're about (climb, branch, rip, first ant, 100 ants,
+(from the References tab, plus one from the user), just the fact in a soft dark box at the bottom
+of the screen for 8 s (no title), no click. `quick` (30–60 s per nest) comes after 10 ants and jumps the
+queue (`EARLY_NOTES`) so it shows early. Most show the first time you do what they're about (climb, branch, rip, first ant, 100 ants,
 sting, army/leafcutter bite, honey, walking a while, scent, shelter, dawn); three (`QUIET_NOTES`)
 come after 5 s standing still. Each once per game, at most one every 40 s (`NOTE_GAP`), and only
 when no flash or species name is up. A triggered note waits 20 s for its turn (60 s for one-off
